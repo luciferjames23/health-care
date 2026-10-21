@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   apiService,
@@ -495,6 +495,14 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
   const [errorMsg, setErrorMsg] = useState(null);
   const lastLoadedKeyRef = React.useRef(null);
 
+  // Voice-to-Text Dictation State for Review & Follow-up
+  const [isListening, setIsListening] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const [speechError, setSpeechError] = useState(null);
+  const [speechSuccess, setSpeechSuccess] = useState(null);
+  const recognitionRef = useRef(null);
+  const followupTextareaRef = useRef(null);
+
   // Form state
   const [form, setForm] = useState({
     summary_id: '',
@@ -519,8 +527,126 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
 
   const [originalForm, setOriginalForm] = useState({});
 
+  // Stop active speech recognition safely
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+    }
+    setIsListening(false);
+    setInterimTranscript('');
+  };
+
+  // Toggle voice-to-text dictation
+  const toggleVoiceRecognition = (forceStart = false) => {
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      setSpeechError('Voice-to-Text is not supported by your current browser. Please open in Google Chrome, Microsoft Edge, or Safari.');
+      return;
+    }
+
+    if (isListening && !forceStart) {
+      stopListening();
+      return;
+    }
+
+    try {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (e) {}
+      }
+
+      const recognition = new SpeechRec();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setSpeechError(null);
+        setInterimTranscript('');
+        setSpeechSuccess('🎙️ Listening... Speak review & follow-up instructions.');
+      };
+
+      recognition.onresult = (event) => {
+        let currentInterim = '';
+        let finalChunk = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const piece = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalChunk += piece;
+          } else {
+            currentInterim += piece;
+          }
+        }
+
+        if (finalChunk) {
+          let trimmed = finalChunk.trim();
+          if (trimmed) {
+            trimmed = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+            setForm((prev) => {
+              const prevText = (prev.followup_instructions || '').trim();
+              let updated;
+              if (!prevText) {
+                updated = trimmed;
+              } else if (prevText.endsWith('.') || prevText.endsWith('!') || prevText.endsWith('?') || prevText.endsWith('\n')) {
+                updated = `${prevText}\n${trimmed}`;
+              } else {
+                updated = `${prevText}. ${trimmed}`;
+              }
+              return { ...prev, followup_instructions: updated };
+            });
+            setSpeechSuccess(`✓ Transcribed: "${trimmed}"`);
+            setInterimTranscript('');
+          }
+        } else {
+          setInterimTranscript(currentInterim);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('SpeechRecognition error:', event.error);
+        if (event.error === 'not-allowed') {
+          setSpeechError('Microphone permission was denied. Please allow microphone access in your browser address bar.');
+          setIsListening(false);
+        } else if (event.error !== 'no-speech') {
+          setSpeechError(`Speech notice: ${event.error}`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        setInterimTranscript('');
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error('Failed to start speech recognition:', err);
+      setSpeechError('Could not start microphone dictation. Please check audio permissions.');
+      setIsListening(false);
+    }
+  };
+
+  // Switch to edit mode and immediately start voice dictation
+  const handleStartVoiceFromView = () => {
+    setIsEditing(true);
+    setTimeout(() => {
+      toggleVoiceRecognition(true);
+      if (followupTextareaRef.current) {
+        followupTextareaRef.current.focus();
+        followupTextareaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150);
+  };
+
   useEffect(() => {
     if (!isOpen) {
+      stopListening();
+      setSpeechError(null);
+      setSpeechSuccess(null);
+      setInterimTranscript('');
       lastLoadedKeyRef.current = null;
       setIsEditing(false);
       setSuccessMsg(null);
@@ -805,6 +931,13 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
 
   return (
     <>
+      <style>{`
+        @keyframes pulseMicDot {
+          0% { transform: scale(0.9); opacity: 0.6; }
+          50% { transform: scale(1.3); opacity: 1; }
+          100% { transform: scale(0.9); opacity: 0.6; }
+        }
+      `}</style>
       {/* ========================================================================= */}
       {/* 1. ON-SCREEN INTERACTIVE DIALOG MODAL (Hidden during print)               */}
       {/* ========================================================================= */}
@@ -1150,10 +1283,36 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                   </div>
                 )}
 
-                {/* SECTION 7: DISCHARGE ADVICE & FOLLOW-UP (Tamil stripped) */}
+                {/* SECTION 7: DISCHARGE ADVICE & FOLLOW-UP (With Voice Dictate trigger) */}
                 <div>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#0369a1', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    Review / Follow-up
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#0369a1', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                      Review / Follow-up
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleStartVoiceFromView}
+                      title="Dictate new review & follow-up instructions using Voice-to-Text"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '3px 10px',
+                        borderRadius: '16px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        border: '1px solid #0284c7',
+                        backgroundColor: '#f0f9ff',
+                        color: '#0284c7',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#e0f2fe'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f0f9ff'; }}
+                    >
+                      <span style={{ fontSize: '12px' }}>🎙️</span>
+                      <span>Voice to Text</span>
+                    </button>
                   </div>
                   <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: 1.5 }}>
                     {parseFollowupInstructions(displayFollowup).length > 1 ? (
@@ -1329,16 +1488,134 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#0369a1', marginBottom: '4px', textTransform: 'uppercase' }}>
-                    Discharge Advice & Follow-Up
-                  </label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#0369a1', textTransform: 'uppercase' }}>
+                      Discharge Advice &amp; Follow-Up (Review)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => toggleVoiceRecognition()}
+                      title={isListening ? "Stop voice dictation" : "Dictate follow-up instructions via microphone"}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '4px 12px',
+                        borderRadius: '20px',
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        border: isListening ? '1.5px solid #ef4444' : '1px solid #0284c7',
+                        backgroundColor: isListening ? '#fef2f2' : '#f0f9ff',
+                        color: isListening ? '#dc2626' : '#0284c7',
+                        cursor: 'pointer',
+                        boxShadow: isListening ? '0 0 10px rgba(239, 68, 68, 0.35)' : 'none',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      {isListening ? (
+                        <>
+                          <span
+                            style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              backgroundColor: '#ef4444',
+                              display: 'inline-block',
+                              animation: 'pulseMicDot 1.2s infinite ease-in-out'
+                            }}
+                          />
+                          <span>⏹️ Stop Dictation</span>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ fontSize: '13px' }}>🎙️</span>
+                          <span>Voice to Text</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* LIVE DICTATION FEEDBACK BANNER */}
+                  {isListening && (
+                    <div style={{
+                      marginBottom: '8px',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      backgroundColor: '#fef2f2',
+                      border: '1px solid #fecaca',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, color: '#b91c1c' }}>
+                          <span
+                            style={{
+                              width: '10px',
+                              height: '10px',
+                              borderRadius: '50%',
+                              backgroundColor: '#ef4444',
+                              display: 'inline-block',
+                              animation: 'pulseMicDot 1s infinite ease-in-out'
+                            }}
+                          />
+                          <span>Listening... Speak follow-up / review instructions</span>
+                        </div>
+                        <span style={{ fontSize: '11px', color: '#991b1b', fontWeight: 500 }}>Speak clearly into microphone</span>
+                      </div>
+                      {interimTranscript && (
+                        <div style={{ fontSize: '12px', fontStyle: 'italic', color: '#7f1d1d', backgroundColor: '#ffffff', padding: '4px 8px', borderRadius: '4px', border: '1px dashed #fca5a5' }}>
+                          "{interimTranscript}..."
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* SPEECH SUCCESS NOTICE */}
+                  {speechSuccess && !speechError && !isListening && (
+                    <div style={{ marginBottom: '6px', fontSize: '11.5px', color: '#047857', backgroundColor: '#ecfdf5', padding: '4px 8px', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                      {speechSuccess}
+                    </div>
+                  )}
+
+                  {/* SPEECH ERROR BANNER */}
+                  {speechError && (
+                    <div style={{ marginBottom: '6px', fontSize: '11.5px', color: '#b91c1c', backgroundColor: '#fef2f2', padding: '6px 10px', borderRadius: '6px', border: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>⚠️ {speechError}</span>
+                      <button type="button" onClick={() => setSpeechError(null)} style={{ border: 'none', background: 'transparent', color: '#991b1b', cursor: 'pointer', fontWeight: 'bold' }}>×</button>
+                    </div>
+                  )}
+
                   <textarea
-                    rows={3}
+                    ref={followupTextareaRef}
+                    rows={4}
                     value={form.followup_instructions}
                     onChange={(e) => setForm({ ...form, followup_instructions: e.target.value })}
-                    placeholder="Enter follow-up instructions and precautions..."
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px', fontFamily: 'inherit' }}
+                    placeholder="Enter follow-up instructions, review date, and discharge advice, or click Voice to Text to dictate..."
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      border: isListening ? '2px solid #ef4444' : '1px solid #cbd5e1',
+                      fontSize: '12px',
+                      fontFamily: 'inherit',
+                      lineHeight: 1.5,
+                      boxShadow: isListening ? '0 0 0 3px rgba(239, 68, 68, 0.15)' : 'none',
+                      transition: 'border 0.2s, box-shadow 0.2s'
+                    }}
                   />
+                  <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '3px', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>💡 Tip: Click <strong>Voice to Text</strong> to dictate OPD review dates, wound care, red-flag warnings, and medications.</span>
+                    {form.followup_instructions && (
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, followup_instructions: '' })}
+                        style={{ border: 'none', background: 'transparent', color: '#94a3b8', fontSize: '10.5px', cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        Clear text
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
