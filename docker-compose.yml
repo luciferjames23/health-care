@@ -1,0 +1,43 @@
+services:
+  # ==============================================================================
+  # Healthcare Platform Backend Service (FastAPI / Uvicorn)
+  # ==============================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: healthcare_backend
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - healthcare_network
+
+  # ==============================================================================
+  # Healthcare Platform Frontend Service (React / Vite + Nginx)
+  # ==============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: healthcare_frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - healthcare_network
+
+networks:
+  healthcare_network:
+    driver: bridge

@@ -1786,6 +1786,7 @@ def get_dim_generated_discharge_summaries(
                            g.diagnoses, g.case_history,
                            g.investigations, g.treatment, g.primary_consultant,
                            g.discharge_advice, g.surgery_details, g.patient_condition,
+                           g.discharge_medications,
                               g.generated_at::timestamp AS generated_at, g.approval_status,
                               'dim_generated_discharge_summaries' AS source_table
                     FROM dim_generated_discharge_summaries g
@@ -1799,7 +1800,7 @@ def get_dim_generated_discharge_summaries(
                            legacy.diagnoses, legacy.case_history, legacy.investigations,
                            legacy.treatment, legacy.primary_consultant,
                            legacy.discharge_advice, legacy.surgery_details,
-                           legacy.patient_condition, legacy.generated_at::timestamp,
+                           legacy.patient_condition, legacy.discharge_medications, legacy.generated_at::timestamp,
                            'Approved', 'discharge_summaries'
                     FROM discharge_summaries legacy
                 )
@@ -1831,7 +1832,7 @@ def get_dim_generated_discharge_summaries(
                     ds.case_history AS hospital_course_summary,
                     ds.case_history,
                     ds.investigations,
-                    ds.treatment AS discharge_medications,
+                    COALESCE(ds.discharge_medications, ds.treatment) AS discharge_medications,
                     ds.treatment,
                     COALESCE(d.display_name, ds.primary_consultant, 'Attending Physician') AS attending_physician,
                     COALESCE(d.display_name, ds.primary_consultant, 'Attending Physician') AS primary_consultant,
@@ -1909,7 +1910,7 @@ def get_dim_generated_discharge_summaries(
                         ds.case_history AS hospital_course_summary,
                         ds.case_history,
                         ds.investigations,
-                        ds.treatment AS discharge_medications,
+                        COALESCE(ds.discharge_medications, ds.treatment) AS discharge_medications,
                         ds.treatment,
                         COALESCE(d.display_name, ds.primary_consultant, 'Attending Physician') AS attending_physician,
                         COALESCE(d.display_name, ds.primary_consultant, 'Attending Physician') AS primary_consultant,
@@ -2375,6 +2376,7 @@ def update_dim_generated_discharge_summary(
             "case_history": payload.case_history or payload.hospital_course_summary or "",
             "investigations": payload.investigations or "",
             "treatment": payload.treatment or "",
+            "discharge_medications": payload.discharge_medications or payload.treatment or "",
             "primary_consultant": payload.attending_physician or payload.approved_by or "Attending Physician",
             "discharge_advice": payload.discharge_advice or payload.followup_instructions or "",
             "surgery_details": payload.surgery_details or "",

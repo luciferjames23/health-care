@@ -329,6 +329,10 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
             insert_record["case_history"] = case_history_val
         if treatment_val:
             insert_record["treatment"] = treatment_val
+        if raw_payload.get("discharge_medications"):
+            insert_record["discharge_medications"] = raw_payload["discharge_medications"]
+        elif treatment_val:
+            insert_record["discharge_medications"] = treatment_val
         if discharge_advice_val:
             insert_record["discharge_advice"] = discharge_advice_val
         if consultant_val:
@@ -369,7 +373,7 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
     if raw_dict.get("admission_reason") and not raw_dict.get("case_history"):
         raw_dict["case_history"] = raw_dict.pop("admission_reason")
     if raw_dict.get("discharge_medications") and not raw_dict.get("treatment"):
-        raw_dict["treatment"] = raw_dict.pop("discharge_medications")
+        raw_dict["treatment"] = raw_dict.get("discharge_medications")
     if raw_dict.get("followup_instructions") and not raw_dict.get("discharge_advice"):
         raw_dict["discharge_advice"] = raw_dict.pop("followup_instructions")
     if raw_dict.get("attending_physician") and not raw_dict.get("primary_consultant"):
@@ -378,9 +382,9 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
     # Only include valid table schema columns for the SQL update statement
     VALID_COLS = {
         "admission_id", "patient_id", "doctor_id", "admission_date", "discharge_date",
-        "diagnoses", "case_history", "investigations", "treatment", "primary_consultant",
-        "discharge_advice", "surgery_details", "patient_condition", "generated_at",
-        "ingestion_timestamp", "approval_status"
+        "diagnoses", "case_history", "investigations", "treatment", "discharge_medications",
+        "primary_consultant", "discharge_advice", "surgery_details", "patient_condition",
+        "generated_at", "ingestion_timestamp", "approval_status"
     }
 
     update_dict = {k: v for k, v in raw_dict.items() if v is not None and k in VALID_COLS}

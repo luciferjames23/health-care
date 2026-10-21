@@ -365,8 +365,92 @@ def match_protocol(diagnosis_str: str, reason_str: str = "") -> dict:
     }
 
 
+def fetch_authoritative_patient_medications_from_db(patient_id: Any, admission_id: Optional[Any] = None) -> List[str]:
+    """
+    Directly queries the PostgreSQL database (prescriptions, prescription_items, medications)
+    to retrieve authoritative, verified medications prescribed for this patient and admission.
+    Never relies on LLM hallucination or synthetic protocols.
+    """
+    pid_clean = None
+    if patient_id is not None:
+        try:
+            digits = re.findall(r'\d+', str(patient_id))
+            if digits:
+                pid_clean = int(digits[-1])
+        except Exception:
+            pass
+
+    adm_clean = None
+    if admission_id is not None:
+        try:
+            digits = re.findall(r'\d+', str(admission_id))
+            if digits:
+                adm_clean = int(digits[-1])
+        except Exception:
+            pass
+
+    if pid_clean is None and adm_clean is None:
+        return []
+
+    try:
+        conn = db_connector.get_connection()
+        cur = conn.cursor()
+        query = """
+            SELECT DISTINCT
+                   COALESCE(m.medication_name, m.generic_name, 'Prescribed Medication') AS med_name,
+                   COALESCE(pi.dosage, '') AS dosage,
+                   COALESCE(pi.route, 'Oral') AS route,
+                   COALESCE(pi.frequency, '') AS frequency,
+                   COALESCE(pi.duration, '') AS duration,
+                   COALESCE(pi.instructions, '') AS instructions
+            FROM prescriptions pr
+            JOIN prescription_items pi ON pr.prescription_id = pi.prescription_id
+            JOIN medications m ON pi.medication_id = m.medication_id
+            WHERE (%s IS NOT NULL AND pr.admission_id = %s)
+               OR (%s IS NOT NULL AND pr.patient_id = %s)
+            ORDER BY med_name ASC;
+        """
+        cur.execute(query, (adm_clean, adm_clean, pid_clean, pid_clean))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        formatted = []
+        seen = set()
+        for r in rows:
+            name, dose, route, freq, dur, inst = r[0], r[1], r[2], r[3], r[4], r[5]
+            key = (str(name).strip().lower(), str(dose).strip().lower(), str(freq).strip().lower(), str(route).strip().lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            parts = [name]
+            if dose: parts.append(f"Dosage: {dose}")
+            if route: parts.append(f"Route: {route}")
+            if freq: parts.append(f"Freq: {freq}")
+            if dur: parts.append(f"Duration: {dur}")
+            if inst: parts.append(f"({inst})")
+            formatted.append(" - ".join(parts))
+        return formatted
+    except Exception as e:
+        print(f"Notice: database medication query fallback: {e}")
+        return []
+
+
 def extract_medications_from_patient(patient_data: dict) -> List[str]:
-    """Extracts raw medication objects if present in patient_data / llm_input_json."""
+    """
+    Extracts authoritative patient medications directly from the PostgreSQL database
+    (prescriptions, prescription_items, medications). If DB query returns empty, falls back
+    to preloaded structured records in patient_data / llm_input_json.
+    """
+    pid = patient_data.get("patient_id")
+    aid = patient_data.get("admission_id")
+    
+    # 1. Primary Ground Truth: Direct Database Query
+    db_meds = fetch_authoritative_patient_medications_from_db(pid, aid)
+    if db_meds:
+        return db_meds
+
+    # 2. Secondary Ground Truth: Pre-loaded structured patient_data or llm_input_json
     med_list = []
     raw_json = patient_data.get("llm_input_json")
     if isinstance(raw_json, str):
@@ -401,6 +485,8 @@ def extract_medications_from_patient(patient_data: dict) -> List[str]:
                 inst = m.get("instructions") or ""
                 parts = [p for p in [name, f"Dosage: {dose}" if dose else "", f"Route: {route}" if route else "", f"Freq: {freq}" if freq else "", f"Duration: {dur}" if dur else "", f"({inst})" if inst else ""] if p]
                 formatted.append(" - ".join(parts))
+            elif isinstance(m, str) and m.strip():
+                formatted.append(m.strip())
     return formatted
 
 
@@ -527,12 +613,17 @@ def call_multi_provider_llm(
     system_prompt = (
         "You are an expert Chief Medical Officer and hospital discharge physician.\n"
         "Your task is to generate a comprehensive, clinically accurate Hospital Discharge Summary for the patient.\n"
+        "CRITICAL CLINICAL SAFETY DIRECTIVE:\n"
+        "- DO NOT invent, generate, hallucinate, or alter any medications.\n"
+        "- All patient medications are strictly maintained and verified by the hospital pharmacy database.\n"
+        "- In 'discharge_advice', provide dietary advice, activity restrictions, red-flag emergency warning signs, and OPD follow-up schedule (DO NOT prescribe or generate medications).\n"
+        "- In 'treatment', summarize the inpatient clinical course, nursing care, and recovery milestones (DO NOT invent unprescribed medications).\n"
         "Return a valid JSON object with the following exact keys:\n"
         "1. 'diagnoses': Primary diagnosis, ICD-10 if known, secondary diagnoses.\n"
         "2. 'case_history': Clinical narrative of admission presentation and inpatient course of stay.\n"
         "3. 'investigations': Labs (CBC, renal, liver, electrolytes), vitals, and ECG/imaging findings.\n"
-        "4. 'treatment': Inpatient medications with exact dosages, frequency, route, and IV fluids.\n"
-        "5. 'discharge_advice': Discharge medications, dietary/activity advice, red-flag emergency signs, and OPD follow-up.\n"
+        "4. 'treatment': Inpatient clinical course, nursing care, and supportive recovery (DO NOT generate unprescribed medications).\n"
+        "5. 'discharge_advice': Dietary advice, activity restrictions, red-flag emergency signs, and OPD follow-up (DO NOT generate unprescribed medications).\n"
         "6. 'surgery_details': Surgical/interventional procedures or 'Nil'.\n"
         "7. 'patient_condition': Hemodynamic stability and clinical state at discharge."
     )
@@ -736,33 +827,35 @@ def generate_patient_discharge_summary(
     # 3. Investigations
     investigations = f"{protocol['investigations']} Vital Signs at Discharge: {vitals_summary}."
 
-    # 4. Treatment Given (Medications WITH EXACT DOSAGE / VOLUME / FREQUENCY)
+    # 4. Authoritative Database-Derived Medications (STRICTLY FROM POSTGRESQL / PHARMACY DB)
     raw_meds = extract_medications_from_patient(patient_data)
-    inpatient_lines = []
-    
-    # Include record-prescribed medications first
     if raw_meds:
-        for idx, m_text in enumerate(raw_meds, 1):
-            inpatient_lines.append(f"{idx}. Administered: {m_text}")
-    
-    # Add protocol inpatient lines
-    for item in protocol["inpatient_treatments"]:
-        if not any(item.split()[1].lower() in line.lower() for line in inpatient_lines if len(item.split()) > 1):
-            inpatient_lines.append(f"{len(inpatient_lines)+1}. {item}")
+        discharge_meds_text = "\n".join(f"{idx}. {m_text}" for idx, m_text in enumerate(raw_meds, 1))
+        inpatient_meds_lines = [f"{idx}. Administered as prescribed: {m_text}" for idx, m_text in enumerate(raw_meds, 1)]
+    else:
+        discharge_meds_text = "No medications prescribed in official hospital record."
+        inpatient_meds_lines = ["No active medications prescribed in official hospital record during inpatient admission."]
 
-    treatment = "Inpatient care and stabilization administered:\n" + "\n".join(inpatient_lines)
+    treatment = (
+        "Prescribed Medication Orders (from Hospital Database):\n"
+        + "\n".join(inpatient_meds_lines)
+        + "\n\nInpatient Clinical Management & Supportive Care:\n"
+        + "• Routine vital signs monitoring conducted per clinical protocol.\n"
+        + "• Hydration, hemodynamic stabilization, and nursing care maintained.\n"
+        + "• Patient evaluated daily and achieved clinical stability."
+    )
 
-    # 5. Discharge Advice (Regimen + Diet/Activity + OPD)
-    discharge_lines = []
-    for idx, med in enumerate(protocol["discharge_medications"], 1):
-        discharge_lines.append(f"{idx}. {med}")
-
-    for idx, advice in enumerate(protocol["general_advice"], len(discharge_lines) + 1):
+    # 5. Discharge Advice (Database Prescriptions + Care Plan + OPD)
+    advice_lines = []
+    for idx, advice in enumerate(protocol.get("general_advice", []), 1):
         if "{doctor}" in advice:
             advice = advice.replace("{doctor}", doctor)
-        discharge_lines.append(f"{idx}. {advice}")
+        advice_lines.append(f"{idx}. {advice}")
 
-    discharge_advice = "\n".join(discharge_lines)
+    discharge_advice = (
+        f"Prescribed Discharge Medications (from Hospital Database):\n{discharge_meds_text}\n\n"
+        f"Care Plan & Precautions:\n" + "\n".join(advice_lines)
+    )
 
     # 6. Surgery Details
     surgery_details = protocol["surgery"]
@@ -775,7 +868,6 @@ def generate_patient_discharge_summary(
     )
 
     # Check if external LLM generation succeeds
-    extracted_meds = extract_medications_from_patient(patient_data)
     prompt_dict = {
         "patient_name": full_name,
         "age": age,
@@ -787,7 +879,7 @@ def generate_patient_discharge_summary(
         "reason_for_admission": chief_comp,
         "attending_doctor": consultant_str,
         "vitals": vitals_summary,
-        "medications": extracted_meds
+        "prescribed_medications_from_database": raw_meds
     }
 
     ai_dict = call_multi_provider_llm(
@@ -804,8 +896,28 @@ def generate_patient_discharge_summary(
             diagnoses_field = format_clinical_diagnoses(ai_diag)
         case_history = ai_dict.get("case_history") or case_history
         investigations = format_clinical_investigations(ai_dict.get("investigations")) or investigations
-        treatment = format_clinical_treatment(ai_dict.get("treatment")) or treatment
-        discharge_advice = format_clinical_advice(ai_dict.get("discharge_advice")) or discharge_advice
+
+        # Treatment: Enforce DB medications truth; combine with AI clinical course narrative
+        ai_treatment = format_clinical_treatment(ai_dict.get("treatment")) or ""
+        treatment = (
+            f"Prescribed Medication Orders (from Hospital Database):\n{discharge_meds_text}\n\n"
+            f"Inpatient Course & Supportive Care:\n{ai_treatment or 'Inpatient nursing care, vital signs monitoring, and symptomatic recovery maintained per clinical protocol.'}"
+        )
+
+        # Discharge Advice: Enforce DB medications truth; strip any AI-invented medications from advice
+        ai_advice = format_clinical_advice(ai_dict.get("discharge_advice")) or ""
+        cleaned_ai_advice = re.sub(
+            r'(?:^|\n)\s*(?:\d+[\.\)]\s*)?(?:Discharge\s+)?Medications?:\s*.*?(?=(?:Diet|Activity|Care|Red[\-\s]*flag|Emergency|Follow[\-\s]*up|OPD):|\n\n|$)',
+            '',
+            ai_advice,
+            flags=re.IGNORECASE | re.DOTALL
+        ).strip()
+
+        discharge_advice = (
+            f"Prescribed Discharge Medications (from Hospital Database):\n{discharge_meds_text}\n\n"
+            f"Follow-up & Care Instructions:\n{cleaned_ai_advice or discharge_advice}"
+        )
+
         surgery_details = ai_dict.get("surgery_details") or surgery_details
         patient_condition = format_clinical_condition(ai_dict.get("patient_condition")) or patient_condition
 
@@ -822,6 +934,7 @@ def generate_patient_discharge_summary(
         "case_history": case_history,
         "investigations": investigations,
         "treatment": treatment,
+        "discharge_medications": discharge_meds_text,
         "primary_consultant": consultant_str,
         "discharge_advice": discharge_advice,
         "surgery_details": surgery_details,
@@ -1454,6 +1567,7 @@ def generate_and_persist_discharge_summaries(
         "discharge_advice",
         "surgery_details",
         "patient_condition",
+        "discharge_medications",
         "generated_at",
         "ingestion_timestamp",
         "approval_status",
@@ -1466,7 +1580,8 @@ def generate_and_persist_discharge_summaries(
             return None
         if col in ("summary_id", "admission_id", "patient_id", "doctor_id"):
             try:
-                return int(val)
+                digits = re.sub(r'[^\d]', '', str(val))
+                return int(digits) if digits else None
             except Exception:
                 return None
         if isinstance(val, (dict, list, tuple)):
@@ -1483,8 +1598,14 @@ def generate_and_persist_discharge_summaries(
             provider=prov,
             api_key=api_key
         )
+        # Ensure summary_id is guaranteed integer
+        if not rec.get("summary_id") or not re.sub(r'[^\d]', '', str(rec.get("summary_id"))):
+            rec["summary_id"] = rec.get("patient_id") or rec.get("admission_id") or 87224
         generated_records.append(rec)
         row_vals = [_clean_val_for_pg(col, rec.get(col)) for col in TABLE_COLS]
+        if row_vals[0] is None:
+            # Fallback for summary_id if parsing returned None
+            row_vals[0] = _clean_val_for_pg("patient_id", rec.get("patient_id")) or 87224
         rows_to_insert.append(row_vals)
 
     # 4. Persist batch into dim_generated_discharge_summaries (upserting existing summary_ids)
@@ -1510,7 +1631,7 @@ def generate_and_persist_discharge_summaries(
                 "summary_id", "admission_id", "patient_id", "doctor_id",
                 "admission_date", "discharge_date", "diagnoses", "case_history",
                 "investigations", "treatment", "primary_consultant", "discharge_advice",
-                "surgery_details", "patient_condition", "generated_at"
+                "surgery_details", "patient_condition", "discharge_medications", "generated_at"
             ]
             ds_rows_to_insert = []
             for rec in generated_records:
