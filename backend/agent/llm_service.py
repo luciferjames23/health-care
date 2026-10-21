@@ -3,15 +3,22 @@ llm_service.py
 ==============
 LLM Conversation & Structured Entity Extraction Service for Meridian Hospital AI Patient Desk.
 
-Integrates LLM capabilities (Gemini / OpenAI / Ollama) for natural language understanding,
-multi-field extraction, and response generation, with seamless deterministic fallbacks.
+Supported providers (via LLM_PROVIDER env var):
+  gpt6luna  -> GPT-6 Luna (gpt-6-luna) — PRIMARY
+  gemini    -> Google Gemini REST
+  google    -> Alias for gemini
+  openai    -> OpenAI Chat Completions (any compatible endpoint)
+  ollama    -> Local Ollama
+  mock      -> Rule-based fallback only
+
+All HTTP calls are delegated to agent.llm_providers (centralized abstraction).
+Extraction logic and rule-based fallbacks are preserved here.
 """
 
 import os
 import sys
 import json
 import re
-import requests
 from typing import Dict, Any, Optional
 
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -21,71 +28,41 @@ if backend_dir not in sys.path:
 import agent.intent_detector as intent_detector
 import agent.entity_extractor as entity_extractor
 import agent.date_normalizer as date_normalizer
+import agent.llm_providers as llm_providers
 
+# Read-only view of provider config for legacy local references
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "mock").lower()
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-1.5-flash")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_MODEL    = os.getenv("LLM_MODEL", "gemini-1.5-flash")
+LLM_API_KEY  = os.getenv("LLM_API_KEY", "")
 LLM_API_BASE = os.getenv("LLM_API_BASE", "")
 
 
 def is_llm_active() -> bool:
     """Returns True if LLM provider and API key are configured for online requests."""
-    return bool(LLM_API_KEY and LLM_PROVIDER in ["gemini", "openai", "ollama", "google"])
+    return llm_providers.is_llm_active()
 
 
 def _call_gemini_api(prompt: str) -> Optional[str]:
-    """Call Gemini REST API generateContent."""
-    if not LLM_API_KEY:
-        return None
-    import voice.whatsapp_client as whatsapp_client
-    model_name = os.getenv("LLM_MODEL", "gemini-2.0-flash")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={LLM_API_KEY}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
-    }
-    try:
-        res = whatsapp_client.get_http_session().post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=4.0)
-        res.raise_for_status()
-        data = res.json()
-        candidates = data.get("candidates", [])
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            if parts:
-                return parts[0].get("text")
-    except Exception as e:
-        # LLM fallback to rule-based engine
-        pass
-    return None
+    """Thin wrapper: delegates to llm_providers (Gemini path)."""
+    import agent.llm_providers as _lp
+    old_prov = os.environ.get("LLM_PROVIDER", "")
+    # Call Gemini specifically even if the primary provider is gpt6luna
+    if old_prov.lower() in ("gpt6luna", "openai"):
+        return _lp._call_gemini(prompt, response_format="json_object", temperature=0.1)
+    return _lp.call_llm(prompt=prompt, response_format="json_object", temperature=0.1)
 
 
 
 def _call_openai_api(prompt: str) -> Optional[str]:
-    """Call OpenAI REST API chat/completions."""
-    if not LLM_API_KEY:
-        return None
-    base_url = LLM_API_BASE or "https://api.openai.com/v1"
-    url = f"{base_url}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": LLM_MODEL or "gpt-4o-mini",
-        "messages": [
-            {"role": "system", "content": "You are a healthcare assistant extracting structured entities in JSON."},
-            {"role": "user", "content": prompt}
-        ],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.1
-    }
-    try:
-        res = requests.post(url, json=payload, headers=headers, timeout=8)
-        res.raise_for_status()
-        return res.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        print(f"[LLM] OpenAI API call error: {e}")
-    return None
+    """Thin wrapper: delegates to llm_providers (OpenAI-compatible path)."""
+    import agent.llm_providers as _lp
+    system_prompt = "You are a healthcare assistant extracting structured entities in JSON."
+    return _lp.call_llm(
+        prompt=prompt,
+        system_prompt=system_prompt,
+        response_format="json_object",
+        temperature=0.1,
+    )
 
 
 def extract_structured_info(message_text: str, current_state: dict, language: str = "ENGLISH") -> Dict[str, Any]:
@@ -186,10 +163,17 @@ Return ONLY a valid JSON object with these exact fields:
 IMPORTANT: For DOB, normalize ALL formats to YYYY-MM-DD. If the date is ambiguous (e.g. 05/06/2004 could be May 6 or June 5), return null for date_of_birth.
         """
         raw_llm = None
+        # Route through unified provider abstraction (supports GPT-6 Luna, Gemini, OpenAI, etc.)
         if LLM_PROVIDER in ["gemini", "google"]:
             raw_llm = _call_gemini_api(prompt)
-        elif LLM_PROVIDER == "openai":
+        elif LLM_PROVIDER in ["openai", "gpt6luna"]:
             raw_llm = _call_openai_api(prompt)
+        else:
+            raw_llm = llm_providers.call_llm(
+                prompt=prompt,
+                response_format="json_object",
+                temperature=0.1,
+            )
 
         if raw_llm:
             try:
@@ -328,29 +312,16 @@ IMPORTANT: For DOB, normalize ALL formats to YYYY-MM-DD. If the date is ambiguou
 
 
 def _call_gemini_freetext(prompt: str, system_instruction: str = None):
-    """Call Gemini for free-text (non-JSON) conversational responses."""
-    if not LLM_API_KEY:
-        return None
-    model_name = "gemini-2.0-flash" if "2.0" in LLM_MODEL or "2.5" in LLM_MODEL else "gemini-1.5-flash-latest"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={LLM_API_KEY}"
-    contents = []
-    if system_instruction:
-        contents.append({"role": "user", "parts": [{"text": system_instruction}]})
-        contents.append({"role": "model", "parts": [{"text": "Understood. I am the Meridian Hospital AI Patient Desk."}]})
-    contents.append({"role": "user", "parts": [{"text": prompt}]})
-    payload = {"contents": contents, "generationConfig": {"temperature": 0.3, "maxOutputTokens": 512, "responseMimeType": "application/json"}}
-    try:
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
-        res.raise_for_status()
-        data = res.json()
-        candidates = data.get("candidates", [])
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            if parts:
-                return parts[0].get("text")
-    except Exception as e:
-        print(f"[LLM] Gemini freetext call error: {e}")
-    return None
+    """
+    Call provider for free-text conversational responses.
+    Delegates to llm_providers.call_llm() — works with GPT-6 Luna, Gemini, or any provider.
+    """
+    return llm_providers.call_llm(
+        prompt=prompt,
+        system_prompt=system_instruction or "",
+        response_format="json_object",
+        temperature=0.3,
+    )
 
 
 def llm_classify_intent_and_respond(message_text: str, current_state: dict, language: str = "ENGLISH", conversation_history: list = None) -> dict:
@@ -428,10 +399,23 @@ def llm_classify_intent_and_respond(message_text: str, current_state: dict, lang
     )
 
     raw = None
+    # Route through unified provider abstraction (GPT-6 Luna, Gemini, OpenAI, etc.)
     if LLM_PROVIDER in ["gemini", "google"]:
         raw = _call_gemini_freetext(prompt, system_instruction)
-    elif LLM_PROVIDER == "openai":
-        raw = _call_openai_api(prompt)
+    elif LLM_PROVIDER in ["openai", "gpt6luna"]:
+        raw = llm_providers.call_llm(
+            prompt=prompt,
+            system_prompt=system_instruction,
+            response_format="json_object",
+            temperature=0.3,
+        )
+    else:
+        raw = llm_providers.call_llm(
+            prompt=prompt,
+            system_prompt=system_instruction,
+            response_format="json_object",
+            temperature=0.3,
+        )
 
     if not raw:
         return {"intent": "UNKNOWN", "response": None, "confidence": "LOW", "route_to_handler": False}

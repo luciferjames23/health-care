@@ -55,6 +55,7 @@ import agent.date_normalizer as date_normalizer
 import agent.entity_extractor as entity_extractor
 import agent.language_service as language_service
 import db_config
+import agent.llm_providers as llm_providers  # Centralized provider abstraction (GPT-6 Luna etc.)
 
 # ---------------------------------------------------------------------------
 # LLM provider config  (same env-vars as llm_service.py)
@@ -281,7 +282,7 @@ def _get_ist_weekday() -> str:
 # ---------------------------------------------------------------------------
 def is_llm_available() -> bool:
     """Returns True when LLM provider and API key are configured."""
-    return bool(LLM_API_KEY and LLM_PROVIDER in {"gemini", "google", "openai", "ollama"})
+    return llm_providers.is_llm_active()
 
 
 # ---------------------------------------------------------------------------
@@ -289,121 +290,39 @@ def is_llm_available() -> bool:
 # ---------------------------------------------------------------------------
 def _call_gemini(prompt: str) -> Optional[str]:
     """
-    Calls Gemini REST generateContent endpoint with JSON response mode.
-    Returns raw JSON text string or None on failure.
+    Thin wrapper: delegates to llm_providers._call_gemini() or call_llm().
+    Preserved for backward compatibility with internal callers.
     """
-    if not LLM_API_KEY:
-        return None
-
-    # Resolve correct Gemini model name for the REST API
-    # gemini-2.5-flash → use gemini-2.5-flash (stable endpoint)
-    # gemini-2.0-flash → use gemini-2.0-flash
-    # others → fall back to gemini-1.5-flash-latest
-    model_env = (LLM_MODEL or "").strip()
-    if "3.6" in model_env:
-        model_name = "gemini-3.6-flash"
-    elif "2.5" in model_env:
-        model_name = "gemini-2.5-flash"
-    elif "2.0" in model_env:
-        model_name = "gemini-2.0-flash"
-    elif model_env:
-        model_name = model_env
-    else:
-        model_name = "gemini-3.6-flash"
-
-    ca_bundle = os.getenv("REQUESTS_CA_BUNDLE", "")
-    verify_ssl = ca_bundle if ca_bundle and os.path.exists(ca_bundle) else True
-
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.05,
-            "responseMimeType": "application/json",
-        },
-    }
-
-    if not LLM_API_KEY or os.environ.get("SKIP_REMOTE_LLM") == "true":
-        return None
-
-    # Try primary model, then fallback models
-    models_to_try = [model_name, "gemini-2.0-flash", "gemini-1.5-flash"]
-    seen = set()
-    for attempt_model in [m for m in models_to_try if m and not (m in seen or seen.add(m))]:
-        attempt_url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{attempt_model}:generateContent?key={LLM_API_KEY}"
-        )
-        try:
-            import voice.whatsapp_client as whatsapp_client
-            res = whatsapp_client.get_http_session().post(
-                attempt_url,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=4.0,
-                verify=verify_ssl,
-            )
-            if res.status_code == 404 and attempt_model != "gemini-1.5-flash-latest":
-                _log(f"Model {attempt_model} returned 404, trying gemini-1.5-flash-latest")
-                continue
-            res.raise_for_status()
-
-            data = res.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text")
-            break  # Got a valid response (even empty), no need to retry
-        except Exception as exc:
-            if "404" in str(exc) and attempt_model != "gemini-1.5-flash-latest":
-                _log(f"Model {attempt_model} error ({exc}), trying fallback model")
-                continue
-            _log(f"Gemini API error: {exc}")
-            break
-
-    return None
+    import agent.llm_providers as _lp
+    # If primary provider is NOT Gemini, still allow explicit Gemini call for fallback chains
+    prov = _lp.get_provider()
+    if prov in ("gemini", "google"):
+        return _lp.call_llm(prompt=prompt, response_format="json_object", temperature=0.05)
+    # Primary is GPT-6 Luna or OpenAI — use primary provider
+    return _lp.call_llm(prompt=prompt, response_format="json_object", temperature=0.05)
 
 
 # ---------------------------------------------------------------------------
 # Low-level OpenAI call (JSON mode)
 # ---------------------------------------------------------------------------
 def _call_openai(prompt: str) -> Optional[str]:
-    """Calls OpenAI chat/completions in JSON mode."""
-    if not LLM_API_KEY:
-        return None
-
-    base_url = LLM_API_BASE or "https://api.openai.com/v1"
-    url = f"{base_url.rstrip('/')}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": LLM_MODEL or "gpt-4o-mini",
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert medical intake assistant for Meridian Hospital. "
-                    "Your ONLY job is to classify patient intent and extract structured entities. "
-                    "You NEVER select doctors. You NEVER write to any database. "
-                    "Always return strict JSON."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.05,
-    }
-    try:
-        import voice.whatsapp_client as whatsapp_client
-        res = whatsapp_client.get_http_session().post(url, json=payload, headers=headers, timeout=4.0)
-        res.raise_for_status()
-        return res.json()["choices"][0]["message"]["content"]
-    except Exception as exc:
-        _log(f"OpenAI API error: {exc}")
-
-    return None
+    """
+    Thin wrapper: delegates to llm_providers.call_llm() (OpenAI-compatible path).
+    Preserved for backward compatibility with internal callers.
+    """
+    import agent.llm_providers as _lp
+    system_msg = (
+        "You are an expert medical intake assistant for Meridian Hospital. "
+        "Your ONLY job is to classify patient intent and extract structured entities. "
+        "You NEVER select doctors. You NEVER write to any database. "
+        "Always return strict JSON."
+    )
+    return _lp.call_llm(
+        prompt=prompt,
+        system_prompt=system_msg,
+        response_format="json_object",
+        temperature=0.05,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1336,10 +1255,16 @@ def route_patient_message_llm(
 
         raw_response: Optional[str] = None
         try:
-            if LLM_PROVIDER in {"gemini", "google"}:
+            # Unified dispatch: GPT-6 Luna, Gemini, OpenAI, or Ollama
+            raw_response = llm_providers.call_llm(
+                prompt=prompt,
+                response_format="json_object",
+                temperature=0.05,
+            )
+            # Fallback: if primary returns None, try Gemini or OpenAI secondary
+            if raw_response is None and LLM_PROVIDER not in ("gemini", "google"):
+                _log("Primary LLM returned None — trying Gemini secondary fallback")
                 raw_response = _call_gemini(prompt)
-            elif LLM_PROVIDER == "openai":
-                raw_response = _call_openai(prompt)
         except Exception as exc:
             _log(f"LLM call exception: {exc}\n{traceback.format_exc()}")
 
