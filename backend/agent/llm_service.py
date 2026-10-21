@@ -43,12 +43,8 @@ def is_llm_active() -> bool:
 
 
 def _call_gemini_api(prompt: str) -> Optional[str]:
-    """Thin wrapper: delegates to llm_providers (Gemini path)."""
+    """Thin wrapper: delegates to active llm_provider (GPT-6 Luna / Gemini / OpenAI)."""
     import agent.llm_providers as _lp
-    old_prov = os.environ.get("LLM_PROVIDER", "")
-    # Call Gemini specifically even if the primary provider is gpt6luna
-    if old_prov.lower() in ("gpt6luna", "openai"):
-        return _lp._call_gemini(prompt, response_format="json_object", temperature=0.1)
     return _lp.call_llm(prompt=prompt, response_format="json_object", temperature=0.1)
 
 
