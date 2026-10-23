@@ -1,0 +1,47 @@
+[
+  {
+    "text": "The",
+    "start": 0.107125,
+    "end": 0.178541
+  },
+  {
+    "text": "worklist",
+    "start": 0.190458,
+    "end": 0.642833
+  },
+  {
+    "text": "separates",
+    "start": 0.65475,
+    "end": 1.071416
+  },
+  {
+    "text": "high",
+    "start": 1.083333,
+    "end": 1.464291
+  },
+  {
+    "text": "medium",
+    "start": 1.738083,
+    "end": 2.166666
+  },
+  {
+    "text": "and",
+    "start": 2.416666,
+    "end": 2.535707
+  },
+  {
+    "text": "low",
+    "start": 2.547625,
+    "end": 2.738083
+  },
+  {
+    "text": "priority",
+    "start": 2.75,
+    "end": 3.214291
+  },
+  {
+    "text": "studies",
+    "start": 3.226208,
+    "end": 3.749999
+  }
+]

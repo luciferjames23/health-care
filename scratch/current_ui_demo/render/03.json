@@ -1,0 +1,52 @@
+[
+  {
+    "text": "Before",
+    "start": 0.107125,
+    "end": 0.40475
+  },
+  {
+    "text": "upload",
+    "start": 0.416666,
+    "end": 0.809541
+  },
+  {
+    "text": "the",
+    "start": 1.071416,
+    "end": 1.154749
+  },
+  {
+    "text": "system",
+    "start": 1.166666,
+    "end": 1.583332
+  },
+  {
+    "text": "checks",
+    "start": 1.59525,
+    "end": 1.904791
+  },
+  {
+    "text": "DICOM",
+    "start": 1.916666,
+    "end": 2.369041
+  },
+  {
+    "text": "patient",
+    "start": 2.380958,
+    "end": 2.738083
+  },
+  {
+    "text": "identity",
+    "start": 2.75,
+    "end": 3.321416
+  },
+  {
+    "text": "and",
+    "start": 3.464291,
+    "end": 3.595249
+  },
+  {
+    "text": "accession",
+    "start": 3.607125,
+    "end": 4.15475
+  }
+]

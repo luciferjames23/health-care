@@ -1,0 +1,47 @@
+[
+  {
+    "text": "The",
+    "start": 0.107125,
+    "end": 0.15475
+  },
+  {
+    "text": "screening",
+    "start": 0.166666,
+    "end": 0.559541
+  },
+  {
+    "text": "score",
+    "start": 0.571416,
+    "end": 0.999999
+  },
+  {
+    "text": "and",
+    "start": 1.166666,
+    "end": 1.238082
+  },
+  {
+    "text": "suspected",
+    "start": 1.25,
+    "end": 1.773791
+  },
+  {
+    "text": "regions",
+    "start": 1.785708,
+    "end": 2.202374
+  },
+  {
+    "text": "support",
+    "start": 2.261916,
+    "end": 2.761916
+  },
+  {
+    "text": "radiologist",
+    "start": 2.773791,
+    "end": 3.440457
+  },
+  {
+    "text": "review",
+    "start": 3.452375,
+    "end": 3.833333
+  }
+]

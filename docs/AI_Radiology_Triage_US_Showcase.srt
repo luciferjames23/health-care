@@ -1,0 +1,75 @@
+1
+00:00:00,200 --> 00:00:05,408
+This is Meridian AI Radiology Triage: an integrated workflow connecting
+
+2
+00:00:05,408 --> 00:00:10,616
+imaging requests, DICOM storage, AI prioritization, and radiologist review.
+
+3
+00:00:11,325 --> 00:00:14,501
+The workflow starts with a chest X-ray order. The requesting
+
+4
+00:00:14,501 --> 00:00:17,677
+clinician records the examination, clinical indication, and urgency, creating a
+
+5
+00:00:17,677 --> 00:00:20,853
+traceable accession.
+
+6
+00:00:21,575 --> 00:00:25,139
+Uploaded DICOM studies are checked against the order and stored
+
+7
+00:00:25,139 --> 00:00:28,703
+in PACS. Order-linked studies then move into the analysis pipeline.
+
+8
+00:00:29,408 --> 00:00:32,856
+Two models contribute complementary signals: DenseNet screening and YOLO localization.
+
+9
+00:00:32,856 --> 00:00:36,304
+Their combined results assign high priority, review flag, or routine
+
+10
+00:00:36,304 --> 00:00:39,752
+status.
+
+11
+00:00:40,492 --> 00:00:45,280
+The worklist brings priorities, screening scores, localization results, and review
+
+12
+00:00:45,280 --> 00:00:50,068
+status together, helping radiologists identify which studies need attention.
+
+13
+00:00:50,783 --> 00:00:53,927
+The radiologist reviews the images and AI findings, then confirms
+
+14
+00:00:53,927 --> 00:00:57,071
+or edits the report. Final clinical interpretation remains with the
+
+15
+00:00:57,071 --> 00:01:00,215
+radiologist.
+
+16
+00:01:00,950 --> 00:01:04,622
+Results return to the patient workflow, while linked clarification threads
+
+17
+00:01:04,622 --> 00:01:08,294
+support follow-up between clinicians and radiologists.
+
+18
+00:01:09,033 --> 00:01:13,197
+This prototype demonstrates end-to-end engineering across clinical workflow, imaging integration,
+
+19
+00:01:13,197 --> 00:01:17,361
+applied AI, and accountable human review.

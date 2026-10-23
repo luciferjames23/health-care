@@ -1,0 +1,91 @@
+1
+00:00:00,295 --> 00:00:05,307
+An integrated radiology workflow connecting imaging orders AI prioritization
+
+2
+00:00:05,593 --> 00:00:06,307
+and human review
+
+3
+00:00:07,174 --> 00:00:09,983
+Start with the imaging order and its clinical indication
+
+4
+00:00:10,840 --> 00:00:13,769
+The queue also shows urgency and upload status
+
+5
+00:00:14,640 --> 00:00:18,129
+Before upload the system checks DICOM patient identity and
+
+6
+00:00:18,140 --> 00:00:18,688
+accession
+
+7
+00:00:19,574 --> 00:00:22,550
+PACS tracks the stored study and its AI processing
+
+8
+00:00:22,562 --> 00:00:22,931
+state
+
+9
+00:00:23,807 --> 00:00:27,450
+The worklist separates high medium and low priority studies
+
+10
+00:00:28,329 --> 00:00:32,221
+Screening scores and localization counts remain visible beside review
+
+11
+00:00:32,233 --> 00:00:32,840
+status
+
+12
+00:00:33,729 --> 00:00:36,943
+Opening a study shows the original radiograph beside the
+
+13
+00:00:37,026 --> 00:00:38,752
+AI localization overlay
+
+14
+00:00:39,640 --> 00:00:43,367
+The screening score and suspected regions support radiologist review
+
+15
+00:00:44,229 --> 00:00:47,538
+The original DICOM opens in OHIF for image review
+
+16
+00:00:48,429 --> 00:00:51,690
+Zoom brings the image into focus alongside pan and
+
+17
+00:00:51,702 --> 00:00:52,905
+window level controls
+
+18
+00:00:53,774 --> 00:00:56,464
+The radiologist can confirm the finding or edit the
+
+19
+00:00:56,476 --> 00:00:56,952
+report
+
+20
+00:00:57,829 --> 00:01:00,674
+The confirmed report records the reviewer and timestamp
+
+21
+00:01:01,529 --> 00:01:04,600
+Report discussions keep follow-up linked to the same study
+
+22
+00:01:05,462 --> 00:01:10,164
+A connected prototype demonstrating clinical workflow imaging integration applied
+
+23
+00:01:10,176 --> 00:01:12,438
+AI and accountable human oversight

@@ -1,0 +1,52 @@
+[
+  {
+    "text": "The",
+    "start": 0.107125,
+    "end": 0.166666
+  },
+  {
+    "text": "radiologist",
+    "start": 0.178583,
+    "end": 0.880958
+  },
+  {
+    "text": "can",
+    "start": 0.892875,
+    "end": 1.03575
+  },
+  {
+    "text": "confirm",
+    "start": 1.047625,
+    "end": 1.464291
+  },
+  {
+    "text": "the",
+    "start": 1.476208,
+    "end": 1.559541
+  },
+  {
+    "text": "finding",
+    "start": 1.571416,
+    "end": 2.154749
+  },
+  {
+    "text": "or",
+    "start": 2.333333,
+    "end": 2.499999
+  },
+  {
+    "text": "edit",
+    "start": 2.511916,
+    "end": 2.702374
+  },
+  {
+    "text": "the",
+    "start": 2.714291,
+    "end": 2.797624
+  },
+  {
+    "text": "report",
+    "start": 2.809541,
+    "end": 3.285749
+  }
+]

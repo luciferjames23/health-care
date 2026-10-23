@@ -1,0 +1,284 @@
+[
+  {
+    "scene": 0,
+    "title": "AI RADIOLOGY TRIAGE",
+    "start": 0,
+    "duration": 6.866666666666666,
+    "cues": [],
+    "source": "03_worklist"
+  },
+  {
+    "scene": 1,
+    "title": "01 / IMAGING ORDER",
+    "start": 6.866666666666666,
+    "duration": 3.6666666666666665,
+    "cues": [
+      [
+        1.2271249999999998,
+        310,
+        530
+      ],
+      [
+        2.453333,
+        520,
+        557
+      ]
+    ],
+    "source": "01_orders"
+  },
+  {
+    "scene": 2,
+    "title": "01 / IMAGING ORDER",
+    "start": 10.533333333333333,
+    "duration": 3.8,
+    "cues": [
+      [
+        1.262875,
+        965,
+        549
+      ],
+      [
+        2.584291,
+        1021,
+        548
+      ]
+    ],
+    "source": "01_orders"
+  },
+  {
+    "scene": 3,
+    "title": "02 / DICOM INGESTION",
+    "start": 14.333333333333332,
+    "duration": 4.933333333333334,
+    "cues": [
+      [
+        2.036666,
+        295,
+        492
+      ],
+      [
+        2.87,
+        715,
+        492
+      ],
+      [
+        3.727125,
+        1180,
+        492
+      ]
+    ],
+    "source": "02_upload"
+  },
+  {
+    "scene": 4,
+    "title": "03 / PACS",
+    "start": 19.266666666666666,
+    "duration": 4.233333333333333,
+    "cues": [
+      [
+        1.310458,
+        420,
+        449
+      ],
+      [
+        2.584291,
+        1085,
+        449
+      ]
+    ],
+    "source": "02_pacs"
+  },
+  {
+    "scene": 5,
+    "title": "04 / MODELS & PRIORITY RULES",
+    "start": 23.5,
+    "duration": 22.366666666666667,
+    "cues": [],
+    "source": "03_worklist"
+  },
+  {
+    "scene": 6,
+    "title": "04 / AI PRIORITIZATION",
+    "start": 45.86666666666667,
+    "duration": 5.4,
+    "cues": [
+      [
+        0.21525,
+        770,
+        553
+      ],
+      [
+        1.2747499999999998,
+        880,
+        553
+      ],
+      [
+        3.762875,
+        1178,
+        553
+      ]
+    ],
+    "source": "03_worklist"
+  },
+  {
+    "scene": 7,
+    "title": "05 / STUDY ANALYSIS",
+    "start": 51.266666666666666,
+    "duration": 5.9,
+    "cues": [
+      [
+        1.5723749999999999,
+        385,
+        522
+      ],
+      [
+        4.762875,
+        686,
+        522
+      ]
+    ],
+    "source": "04_analysis"
+  },
+  {
+    "scene": 8,
+    "title": "05 / STUDY ANALYSIS",
+    "start": 57.166666666666664,
+    "duration": 4.6,
+    "cues": [
+      [
+        0.691416,
+        1171,
+        359
+      ],
+      [
+        1.905708,
+        638,
+        525
+      ]
+    ],
+    "source": "04_analysis"
+  },
+  {
+    "scene": 9,
+    "title": "06 / OHIF DICOM VIEWER",
+    "start": 61.766666666666666,
+    "duration": 4.2,
+    "cues": [
+      [
+        0.798583,
+        749,
+        382
+      ],
+      [
+        1.929541,
+        115,
+        23
+      ]
+    ],
+    "source": "05_ohif"
+  },
+  {
+    "scene": 10,
+    "title": "06 / OHIF DICOM VIEWER",
+    "start": 65.96666666666667,
+    "duration": 5.333333333333333,
+    "cues": [
+      [
+        0.21525,
+        508,
+        24
+      ],
+      [
+        0.941416,
+        780,
+        420
+      ],
+      [
+        1.429541,
+        780,
+        470
+      ],
+      [
+        2.822375,
+        552,
+        24
+      ],
+      [
+        3.4890410000000003,
+        640,
+        24
+      ]
+    ],
+    "source": "05_ohif_zoomtool"
+  },
+  {
+    "scene": 11,
+    "title": "07 / RADIOLOGIST REVIEW",
+    "start": 71.3,
+    "duration": 4.066666666666666,
+    "cues": [
+      [
+        1.1676250000000001,
+        935,
+        642
+      ],
+      [
+        2.631916,
+        928,
+        676
+      ]
+    ],
+    "source": "06_review"
+  },
+  {
+    "scene": 12,
+    "title": "07 / RADIOLOGIST REVIEW",
+    "start": 75.36666666666666,
+    "duration": 3.7,
+    "cues": [
+      [
+        0.727125,
+        1042,
+        536
+      ],
+      [
+        1.667625,
+        1040,
+        392
+      ],
+      [
+        2.3937910000000002,
+        1050,
+        413
+      ]
+    ],
+    "source": "06_review"
+  },
+  {
+    "scene": 13,
+    "title": "08 / CONNECTED FOLLOW-UP",
+    "start": 79.06666666666666,
+    "duration": 3.933333333333333,
+    "cues": [
+      [
+        0.512875,
+        194,
+        39
+      ],
+      [
+        2.953333,
+        277,
+        114
+      ]
+    ],
+    "source": "07_discussion"
+  },
+  {
+    "scene": 14,
+    "title": "ENGINEERED END TO END",
+    "start": 83.0,
+    "duration": 7.833333333333333,
+    "cues": [],
+    "source": "04_analysis"
+  }
+]

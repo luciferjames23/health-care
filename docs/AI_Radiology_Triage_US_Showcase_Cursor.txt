@@ -1,0 +1,23 @@
+AI RADIOLOGY TRIAGE
+This is Meridian AI Radiology Triage: an integrated workflow connecting imaging requests, DICOM storage, AI prioritization, and radiologist review.
+
+01 / ORDER
+The workflow starts with a chest X-ray order. The requesting clinician records the examination, clinical indication, and urgency, creating a traceable accession.
+
+02 / INGEST
+Uploaded DICOM studies are checked against the order and stored in PACS. Order-linked studies then move into the analysis pipeline.
+
+03 / ANALYZE
+Two models contribute complementary signals: DenseNet screening and YOLO localization. Their combined results assign high priority, review flag, or routine status.
+
+04 / PRIORITIZE
+The worklist brings priorities, screening scores, localization results, and review status together, helping radiologists identify which studies need attention.
+
+05 / REVIEW
+The radiologist reviews the images and AI findings, then confirms or edits the report. Final clinical interpretation remains with the radiologist.
+
+06 / FOLLOW THROUGH
+Results return to the patient workflow, while linked clarification threads support follow-up between clinicians and radiologists.
+
+ENGINEERED END TO END
+This prototype demonstrates end-to-end engineering across clinical workflow, imaging integration, applied AI, and accountable human review.

@@ -200,7 +200,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
 
     <Card style={{ marginBottom: 12, background: '#fffdf7' }}>
       <div style={{ fontSize: 11.5, lineHeight: 1.5 }}>
-        <b>Demo PACS:</b> Orthanc is used only as the supplied demonstration PACS. HIGH PRIORITY and REVIEW FLAG are AI triage/review states, not confirmed clinical critical results. Final interpretation belongs to a qualified radiologist.
+        <b>Demo PACS:</b> Orthanc is used only as the supplied demonstration PACS. High Priority and Medium Priority are AI triage/review states, not confirmed clinical critical results. Final interpretation belongs to a qualified radiologist.
       </div>
     </Card>
 

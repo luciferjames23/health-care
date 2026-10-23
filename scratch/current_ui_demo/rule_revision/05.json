@@ -1,0 +1,247 @@
+[
+  {
+    "text": "DenseNet",
+    "start": 0.107125,
+    "end": 0.607125
+  },
+  {
+    "text": "one",
+    "start": 0.619041,
+    "end": 0.880957
+  },
+  {
+    "text": "twenty",
+    "start": 0.892875,
+    "end": 1.166666
+  },
+  {
+    "text": "one",
+    "start": 1.178583,
+    "end": 1.392874
+  },
+  {
+    "text": "screens",
+    "start": 1.40475,
+    "end": 1.773791
+  },
+  {
+    "text": "for",
+    "start": 1.785708,
+    "end": 1.952374
+  },
+  {
+    "text": "opacity",
+    "start": 1.964291,
+    "end": 2.654749
+  },
+  {
+    "text": "at",
+    "start": 2.797625,
+    "end": 2.880958
+  },
+  {
+    "text": "a",
+    "start": 2.892875,
+    "end": 2.9405
+  },
+  {
+    "text": "twenty",
+    "start": 2.952375,
+    "end": 3.25
+  },
+  {
+    "text": "percent",
+    "start": 3.261916,
+    "end": 3.654791
+  },
+  {
+    "text": "probability",
+    "start": 3.666666,
+    "end": 4.261916
+  },
+  {
+    "text": "threshold",
+    "start": 4.273791,
+    "end": 4.833332
+  },
+  {
+    "text": "YOLO",
+    "start": 5.226208,
+    "end": 5.535749
+  },
+  {
+    "text": "eleven",
+    "start": 5.547625,
+    "end": 5.916666
+  },
+  {
+    "text": "nano",
+    "start": 5.928583,
+    "end": 6.214291
+  },
+  {
+    "text": "localizes",
+    "start": 6.226208,
+    "end": 6.845249
+  },
+  {
+    "text": "opacity",
+    "start": 6.857125,
+    "end": 7.5595
+  },
+  {
+    "text": "at",
+    "start": 7.785708,
+    "end": 7.892833
+  },
+  {
+    "text": "ten",
+    "start": 7.90475,
+    "end": 8.107125
+  },
+  {
+    "text": "percent",
+    "start": 8.119041,
+    "end": 8.452374
+  },
+  {
+    "text": "confidence",
+    "start": 8.464291,
+    "end": 9.095249
+  },
+  {
+    "text": "or",
+    "start": 9.285708,
+    "end": 9.404749
+  },
+  {
+    "text": "above",
+    "start": 9.416666,
+    "end": 9.785707
+  },
+  {
+    "text": "Both",
+    "start": 10.190458,
+    "end": 10.380916
+  },
+  {
+    "text": "models",
+    "start": 10.392875,
+    "end": 10.6905
+  },
+  {
+    "text": "positive",
+    "start": 10.702375,
+    "end": 11.25
+  },
+  {
+    "text": "means",
+    "start": 11.392875,
+    "end": 11.583333
+  },
+  {
+    "text": "high",
+    "start": 11.59525,
+    "end": 11.75
+  },
+  {
+    "text": "priority",
+    "start": 11.761916,
+    "end": 12.369041
+  },
+  {
+    "text": "Exactly",
+    "start": 12.761916,
+    "end": 13.238124
+  },
+  {
+    "text": "one",
+    "start": 13.25,
+    "end": 13.440458
+  },
+  {
+    "text": "positive",
+    "start": 13.452375,
+    "end": 13.976166
+  },
+  {
+    "text": "means",
+    "start": 13.988083,
+    "end": 14.249999
+  },
+  {
+    "text": "medium",
+    "start": 14.261916,
+    "end": 14.666666
+  },
+  {
+    "text": "priority",
+    "start": 14.678583,
+    "end": 15.285708
+  },
+  {
+    "text": "Neither",
+    "start": 15.678583,
+    "end": 15.916666
+  },
+  {
+    "text": "model",
+    "start": 15.928583,
+    "end": 16.238124
+  },
+  {
+    "text": "flags",
+    "start": 16.25,
+    "end": 16.607125
+  },
+  {
+    "text": "opacity",
+    "start": 16.619041,
+    "end": 17.273791
+  },
+  {
+    "text": "means",
+    "start": 17.440458,
+    "end": 17.666666
+  },
+  {
+    "text": "low",
+    "start": 17.678583,
+    "end": 17.892874
+  },
+  {
+    "text": "priority",
+    "start": 17.90475,
+    "end": 18.547625
+  },
+  {
+    "text": "Low",
+    "start": 18.940458,
+    "end": 19.095208
+  },
+  {
+    "text": "priority",
+    "start": 19.107125,
+    "end": 19.690458
+  },
+  {
+    "text": "still",
+    "start": 19.702375,
+    "end": 20.0
+  },
+  {
+    "text": "requires",
+    "start": 20.011916,
+    "end": 20.511916
+  },
+  {
+    "text": "radiologist",
+    "start": 20.523791,
+    "end": 21.214249
+  },
+  {
+    "text": "review",
+    "start": 21.226208,
+    "end": 21.607166
+  }
+]

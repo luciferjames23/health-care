@@ -1,0 +1,62 @@
+[
+  {
+    "text": "An",
+    "start": 0.09525,
+    "end": 0.1905
+  },
+  {
+    "text": "integrated",
+    "start": 0.202375,
+    "end": 0.738083
+  },
+  {
+    "text": "radiology",
+    "start": 0.75,
+    "end": 1.357125
+  },
+  {
+    "text": "workflow",
+    "start": 1.369041,
+    "end": 2.023791
+  },
+  {
+    "text": "connecting",
+    "start": 2.202375,
+    "end": 2.714291
+  },
+  {
+    "text": "imaging",
+    "start": 2.785708,
+    "end": 3.154749
+  },
+  {
+    "text": "orders",
+    "start": 3.166666,
+    "end": 3.630957
+  },
+  {
+    "text": "AI",
+    "start": 3.90475,
+    "end": 4.178541
+  },
+  {
+    "text": "prioritization",
+    "start": 4.190458,
+    "end": 5.107124
+  },
+  {
+    "text": "and",
+    "start": 5.392875,
+    "end": 5.452416
+  },
+  {
+    "text": "human",
+    "start": 5.464291,
+    "end": 5.738082
+  },
+  {
+    "text": "review",
+    "start": 5.75,
+    "end": 6.107125
+  }
+]

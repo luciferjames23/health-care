@@ -1,0 +1,44 @@
+AI RADIOLOGY TRIAGE
+An integrated radiology workflow, connecting imaging orders, AI prioritization, and human review.
+
+01 / IMAGING ORDER
+Start with the imaging order and its clinical indication.
+
+01 / IMAGING ORDER
+The queue also shows urgency and upload status.
+
+02 / DICOM INGESTION
+Before upload, the system checks DICOM patient identity and accession.
+
+03 / PACS
+PACS tracks the stored study and its AI processing state.
+
+04 / MODELS & PRIORITY RULES
+DenseNet one twenty one screens for opacity at a twenty percent probability threshold. YOLO eleven nano localizes opacity at ten percent confidence or above. Both models positive means high priority. Exactly one positive means medium priority. Neither model flags opacity means low priority. Low priority still requires radiologist review.
+
+04 / AI PRIORITIZATION
+Screening scores and localization counts remain visible beside review status.
+
+05 / STUDY ANALYSIS
+Opening a study shows the original radiograph beside the AI localization overlay.
+
+05 / STUDY ANALYSIS
+The screening score and suspected regions support radiologist review.
+
+06 / OHIF DICOM VIEWER
+The original DICOM opens in OHIF for image review.
+
+06 / OHIF DICOM VIEWER
+Zoom brings the image into focus, alongside pan and window level controls.
+
+07 / RADIOLOGIST REVIEW
+The radiologist can confirm the finding or edit the report.
+
+07 / RADIOLOGIST REVIEW
+The confirmed report records the reviewer and timestamp.
+
+08 / CONNECTED FOLLOW-UP
+Report discussions keep follow-up linked to the same study.
+
+ENGINEERED END TO END
+A connected prototype demonstrating clinical workflow, imaging integration, applied AI, and accountable human oversight.

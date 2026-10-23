@@ -1,0 +1,47 @@
+[
+  {
+    "text": "Start",
+    "start": 0.107125,
+    "end": 0.416666
+  },
+  {
+    "text": "with",
+    "start": 0.428583,
+    "end": 0.559541
+  },
+  {
+    "text": "the",
+    "start": 0.571416,
+    "end": 0.666666
+  },
+  {
+    "text": "imaging",
+    "start": 0.678583,
+    "end": 1.095249
+  },
+  {
+    "text": "order",
+    "start": 1.107125,
+    "end": 1.46425
+  },
+  {
+    "text": "and",
+    "start": 1.666666,
+    "end": 1.726207
+  },
+  {
+    "text": "its",
+    "start": 1.738083,
+    "end": 1.857124
+  },
+  {
+    "text": "clinical",
+    "start": 1.869041,
+    "end": 2.321416
+  },
+  {
+    "text": "indication",
+    "start": 2.333333,
+    "end": 2.916666
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "text": "Opening",
+    "start": 0.09525,
+    "end": 0.416666
+  },
+  {
+    "text": "a",
+    "start": 0.428583,
+    "end": 0.476208
+  },
+  {
+    "text": "study",
+    "start": 0.488083,
+    "end": 0.928541
+  },
+  {
+    "text": "shows",
+    "start": 1.035708,
+    "end": 1.321416
+  },
+  {
+    "text": "the",
+    "start": 1.333333,
+    "end": 1.440458
+  },
+  {
+    "text": "original",
+    "start": 1.452375,
+    "end": 2.023791
+  },
+  {
+    "text": "radiograph",
+    "start": 2.035708,
+    "end": 2.690458
+  },
+  {
+    "text": "beside",
+    "start": 2.714291,
+    "end": 3.190499
+  },
+  {
+    "text": "the",
+    "start": 3.202375,
+    "end": 3.3095
+  },
+  {
+    "text": "AI",
+    "start": 3.392875,
+    "end": 3.773833
+  },
+  {
+    "text": "localization",
+    "start": 3.785708,
+    "end": 4.630958
+  },
+  {
+    "text": "overlay",
+    "start": 4.642875,
+    "end": 5.119083
+  }
+]

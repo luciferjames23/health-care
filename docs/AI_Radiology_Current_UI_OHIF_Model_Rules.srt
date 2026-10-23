@@ -1,0 +1,111 @@
+1
+00:00:00,295 --> 00:00:05,307
+An integrated radiology workflow connecting imaging orders AI prioritization
+
+2
+00:00:05,593 --> 00:00:06,307
+and human review
+
+3
+00:00:07,174 --> 00:00:09,983
+Start with the imaging order and its clinical indication
+
+4
+00:00:10,840 --> 00:00:13,769
+The queue also shows urgency and upload status
+
+5
+00:00:14,640 --> 00:00:18,129
+Before upload the system checks DICOM patient identity and
+
+6
+00:00:18,140 --> 00:00:18,688
+accession
+
+7
+00:00:19,574 --> 00:00:22,550
+PACS tracks the stored study and its AI processing
+
+8
+00:00:22,562 --> 00:00:22,931
+state
+
+9
+00:00:23,807 --> 00:00:26,640
+DenseNet one twenty one screens for opacity at a
+
+10
+00:00:26,652 --> 00:00:31,260
+twenty percent probability threshold YOLO eleven nano localizes opacity
+
+11
+00:00:31,486 --> 00:00:34,950
+at ten percent confidence or above Both models positive
+
+12
+00:00:35,093 --> 00:00:38,986
+means high priority Exactly one positive means medium priority
+
+13
+00:00:39,379 --> 00:00:43,390
+Neither model flags opacity means low priority Low priority
+
+14
+00:00:43,402 --> 00:00:45,307
+still requires radiologist review
+
+15
+00:00:46,162 --> 00:00:50,055
+Screening scores and localization counts remain visible beside review
+
+16
+00:00:50,067 --> 00:00:50,674
+status
+
+17
+00:00:51,562 --> 00:00:54,776
+Opening a study shows the original radiograph beside the
+
+18
+00:00:54,860 --> 00:00:56,586
+AI localization overlay
+
+19
+00:00:57,474 --> 00:01:01,200
+The screening score and suspected regions support radiologist review
+
+20
+00:01:02,062 --> 00:01:05,371
+The original DICOM opens in OHIF for image review
+
+21
+00:01:06,262 --> 00:01:09,524
+Zoom brings the image into focus alongside pan and
+
+22
+00:01:09,536 --> 00:01:10,738
+window level controls
+
+23
+00:01:11,607 --> 00:01:14,298
+The radiologist can confirm the finding or edit the
+
+24
+00:01:14,310 --> 00:01:14,786
+report
+
+25
+00:01:15,662 --> 00:01:18,507
+The confirmed report records the reviewer and timestamp
+
+26
+00:01:19,362 --> 00:01:22,433
+Report discussions keep follow-up linked to the same study
+
+27
+00:01:23,295 --> 00:01:27,998
+A connected prototype demonstrating clinical workflow imaging integration applied
+
+28
+00:01:28,010 --> 00:01:30,271
+AI and accountable human oversight

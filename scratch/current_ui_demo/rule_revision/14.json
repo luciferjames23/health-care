@@ -1,0 +1,72 @@
+[
+  {
+    "text": "A",
+    "start": 0.09525,
+    "end": 0.142875
+  },
+  {
+    "text": "connected",
+    "start": 0.15475,
+    "end": 0.571416
+  },
+  {
+    "text": "prototype",
+    "start": 0.583333,
+    "end": 1.214291
+  },
+  {
+    "text": "demonstrating",
+    "start": 1.226208,
+    "end": 1.833333
+  },
+  {
+    "text": "clinical",
+    "start": 1.84525,
+    "end": 2.321458
+  },
+  {
+    "text": "workflow",
+    "start": 2.333333,
+    "end": 2.880958
+  },
+  {
+    "text": "imaging",
+    "start": 3.142875,
+    "end": 3.547625
+  },
+  {
+    "text": "integration",
+    "start": 3.559541,
+    "end": 4.190499
+  },
+  {
+    "text": "applied",
+    "start": 4.440458,
+    "end": 4.797583
+  },
+  {
+    "text": "AI",
+    "start": 4.809541,
+    "end": 5.214291
+  },
+  {
+    "text": "and",
+    "start": 5.5,
+    "end": 5.619041
+  },
+  {
+    "text": "accountable",
+    "start": 5.630958,
+    "end": 6.154749
+  },
+  {
+    "text": "human",
+    "start": 6.166666,
+    "end": 6.476207
+  },
+  {
+    "text": "oversight",
+    "start": 6.488083,
+    "end": 7.071416
+  }
+]
