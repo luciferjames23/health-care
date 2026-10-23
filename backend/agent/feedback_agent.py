@@ -363,6 +363,18 @@ def store_patient_feedback(
                 conversation_id = c_row[0]
                 if not db_patient_id:
                     db_patient_id = c_row[1]
+                if not db_patient_id and c_row[2]:
+                    wa_num = c_row[2]
+                    clean_p = wa_num[-10:] if len(wa_num) >= 10 else wa_num
+                    cur.execute("""
+                        SELECT id FROM patients 
+                        WHERE RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = %s 
+                        LIMIT 1;
+                    """, (clean_p,))
+                    p_match = cur.fetchone()
+                    if p_match:
+                        db_patient_id = p_match[0]
+                        cur.execute("UPDATE conversations SET patient_id = %s WHERE id = %s;", (db_patient_id, conversation_id))
             else:
                 cur.execute("""
                     INSERT INTO conversations (
@@ -372,6 +384,21 @@ def store_patient_feedback(
                     ) RETURNING id;
                 """, (conversation_code, db_patient_id))
                 conversation_id = cur.fetchone()[0]
+
+        if not db_patient_id and conversation_code:
+            extracted_phone = extract_whatsapp_number(conversation_code)
+            if extracted_phone:
+                clean_p = extracted_phone[-10:] if len(extracted_phone) >= 10 else extracted_phone
+                cur.execute("""
+                    SELECT id FROM patients 
+                    WHERE RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = %s 
+                    LIMIT 1;
+                """, (clean_p,))
+                p_match = cur.fetchone()
+                if p_match:
+                    db_patient_id = p_match[0]
+                    if conversation_id:
+                        cur.execute("UPDATE conversations SET patient_id = %s WHERE id = %s;", (db_patient_id, conversation_id))
 
         # Duplicate submission check via whatsapp_message_id
         if whatsapp_message_id:

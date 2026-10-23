@@ -133,6 +133,12 @@ try:
 except Exception as e:
     print(f"Failed to load claim denial agent router: {e}")
 
+try:
+    from routers.ag11_followup_routes import router as ag11_followup_router
+    routers_to_mount.append(ag11_followup_router)
+except Exception as e:
+    print(f"Failed to load ag11_followup router: {e}")
+
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
     description="REST API service querying Healthcare clinical tables and AI clinical models",
@@ -265,6 +271,13 @@ def on_startup():
     except Exception as e:
         import logging
         logging.getLogger("uvicorn").warning("Post-discharge feedback scheduler on startup: %s", e)
+
+    try:
+        from services.ag11_followup_scheduler import start_ag11_followup_scheduler
+        start_ag11_followup_scheduler(app)
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning("AG-11 Follow-up scheduler on startup: %s", e)
 
     try:
         from services.queue_scheduler import start_queue_scheduler

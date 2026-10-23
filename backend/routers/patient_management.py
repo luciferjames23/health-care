@@ -586,6 +586,11 @@ def create_patient_full(payload: CreateFullPatientRequest = Body(...)):
             adm_input = payload.admission or AdmissionInput()
             _sync_sequence(cur, 'admissions', 'admission_id')
             next_adm_id = _get_next_id(cur, 'admissions', 'admission_id')
+            cur.execute("SELECT COALESCE(MAX(admission_id), 0) FROM dim_admission_inputs;")
+            max_dim_row = cur.fetchone()
+            max_dim_id = (max_dim_row['coalesce'] if isinstance(max_dim_row, dict) else max_dim_row[0]) if max_dim_row else 0
+            if max_dim_id >= next_adm_id:
+                next_adm_id = max_dim_id + 1
             adm_number = f"MER-ADM-{str(next_adm_id).zfill(7)}"
 
             adm_type = payload.admission_type or adm_input.admission_type or "Emergency"

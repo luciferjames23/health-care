@@ -919,7 +919,12 @@ def register_patient(
             if bed_id:
                 cur.execute("UPDATE beds SET status = 'Occupied' WHERE bed_id = %s;", (bed_id,))
 
-            cur.execute("SELECT COALESCE(MAX(admission_id), 0) + 1 FROM admissions;")
+            cur.execute("""
+                SELECT GREATEST(
+                    (SELECT COALESCE(MAX(admission_id), 0) FROM admissions),
+                    (SELECT COALESCE(MAX(admission_id), 0) FROM dim_admission_inputs)
+                ) + 1;
+            """)
             next_adm_id = cur.fetchone()[0]
             adm_number = f"MER-ADM-{str(next_adm_id).zfill(7)}"
 
@@ -1075,7 +1080,7 @@ Bill Number: BILL-{30500 + next_adm_id % 1000} | Net: 120000.00 | Insurer: {insu
                     98.0, %s, 120000.0, 'Released',
                     'Released', 0.0, %s, %s,
                     CURRENT_TIMESTAMP, %s, %s, %s
-                );
+                ) ON CONFLICT (admission_id) DO NOTHING;
             """, (
                 next_adm_id, adm_number, patient_id, assigned_code,
                 first_name, last_name, gender, req.age or 35, patient_blood_group,

@@ -23,10 +23,16 @@ from urllib3.util import Retry
 
 _http_session = None
 
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+os.environ.pop("REQUESTS_CA_BUNDLE", None)
+
 def get_http_session() -> requests.Session:
     global _http_session
     if _http_session is None:
+        os.environ.pop("REQUESTS_CA_BUNDLE", None)
         s = requests.Session()
+        s.verify = False
         adapter = HTTPAdapter(
             pool_connections=25,
             pool_maxsize=25,
@@ -40,6 +46,7 @@ def get_http_session() -> requests.Session:
 
 def get_access_token() -> str:
     db_config.load_dotenv(override=True)
+    os.environ.pop("REQUESTS_CA_BUNDLE", None)
     return os.getenv("META_WHATSAPP_ACCESS_TOKEN", os.getenv("WHATSAPP_ACCESS_TOKEN", "MOCK_ACCESS_TOKEN"))
 
 

@@ -59,7 +59,7 @@ export const ROLE_PAGE_ACCESS = {
   'Auditor': null, // Full platform access
   'Doctor': [
     // 8 Core Data Pages (preserved)
-    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent',
+    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent', 'followup-agent',
     // Operational & Clinical
     'appointments', 'emergency', 'pre-admission', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc', 'feedback',
     // Pharmacy & Supply Chain
@@ -73,7 +73,7 @@ export const ROLE_PAGE_ACCESS = {
   ],
   'Nurse': [
     // Core Data Pages (preserved)
-    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'discharge-agent',
+    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'discharge-agent', 'followup-agent',
     // Operational & Clinical
     'emergency', 'nursing', 'medications', 'bloodbank', 'sbar', 'soap', 'patient360', 'deathmlc', 'surgery', 'feedback',
     // Pharmacy & Supply Chain

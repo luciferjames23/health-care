@@ -3884,7 +3884,43 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             state["pending_action_intent"] = None
             state_manager.save_conversation_state(conversation_code, state)
 
-            if pending_action == "BOOK_APPOINTMENT":
+            if pending_action == "AG11_FOLLOWUP":
+                pending_btn = state.get("pending_ag11_button_id")
+                pending_txt = state.get("pending_ag11_text") or "Selected Patient"
+                state["pending_ag11_button_id"] = None
+                state["pending_ag11_text"] = None
+                state_manager.save_conversation_state(conversation_code, state)
+
+                try:
+                    import services.ag11_followup_service as ag11_service
+                    eval_res = ag11_service.evaluate_patient_response(
+                        patient_id=p_info["id"],
+                        raw_text=pending_txt,
+                        button_id=pending_btn
+                    )
+                    if eval_res.get("handled"):
+                        resp = eval_res.get("reply_message")
+                    else:
+                        resp = f"Selected profile: *{p_info['full_name']}* (`{p_info['patient_code']}`).\n\nHow is your recovery progressing today?"
+                except Exception as ag11_err:
+                    print(f"[AG11_SELECT_PAT_ERR] {ag11_err}")
+                    resp = f"Selected profile: *{p_info['full_name']}* (`{p_info['patient_code']}`). Your care team has been updated."
+
+                buttons = [
+                    language_service.get_translated_button("btn_main_menu", current_lang)
+                ]
+                state["interactive_buttons"] = buttons
+                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "AG11_FOLLOWUP", state)
+                return {
+                    "success": True,
+                    "conversation_id": conversation_code,
+                    "language": current_lang,
+                    "intent": "AG11_FOLLOWUP",
+                    "response": resp,
+                    "interactive_buttons": buttons
+                }
+
+            elif pending_action == "BOOK_APPOINTMENT":
                 state["booking_stage"] = "AWAITING_SYMPTOM"
                 state["previous_question"] = "ask_booking_symptom"
                 state["conversation_state"] = "BOOKING_REASON_REQUIRED"

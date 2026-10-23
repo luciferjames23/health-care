@@ -355,6 +355,49 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
             _processing_wamids.add(message_id)
 
     try:
+        # AG-11 Follow-up Agent response interceptor
+        is_ag11_btn = bool(button_id and button_id.startswith("ag11_"))
+        txt_lower = (body_text or "").lower().strip()
+        is_ag11_text = any(k in txt_lower for k in [
+            "feeling well", "recovering great", "fully recovered",
+            "pain/symptoms", "need callback", "medication issue", "book review appt"
+        ])
+        
+        if is_ag11_btn or is_ag11_text:
+            try:
+                import services.ag11_followup_service as ag11_service
+                resolve_res = ag11_service.resolve_patient_for_whatsapp(sender_num, session_code)
+                
+                if resolve_res.get("status") == "EXPLICIT":
+                    pid = resolve_res["patient_id"]
+                    eval_res = ag11_service.evaluate_patient_response(pid, body_text, button_id, message_id)
+                    if eval_res.get("handled"):
+                        reply_txt = eval_res.get("reply_message")
+                        whatsapp_client.send_text_message(sender_num, reply_txt)
+                        record_whatsapp_message_id(session_code, message_id)
+                        return {"response": reply_txt, "intent": "AG11_FOLLOWUP"}
+
+                elif resolve_res.get("status") == "AMBIGUOUS":
+                    # Save pending action for AG11 followup
+                    import agent.state_manager as state_manager
+                    state = state_manager.get_conversation_state(session_code)
+                    state["pending_action_intent"] = "AG11_FOLLOWUP"
+                    state["pending_ag11_button_id"] = button_id
+                    state["pending_ag11_text"] = body_text
+                    state_manager.save_conversation_state(session_code, state)
+
+                    pat_buttons = []
+                    for p in resolve_res.get("patients", [])[:3]:
+                        p_name = p.get("full_name") or f"Patient {p.get('id')}"
+                        pat_buttons.append({"id": f"btn_select_pat_{p['id']}", "title": p_name[:20]})
+
+                    prompt_msg = "Multiple patient profiles are registered under this phone number. Please select who this recovery check-in is for:"
+                    whatsapp_client.send_button_message(sender_num, prompt_msg, pat_buttons)
+                    record_whatsapp_message_id(session_code, message_id)
+                    return {"response": prompt_msg, "intent": "AG11_PATIENT_SELECTION"}
+            except Exception as ag11_err:
+                print(f"[AG11_INTERCEPT_WARN] {ag11_err}")
+
         t_agent_start = time.monotonic()
         agent_res = agent_service.process_agent_message(
             conversation_code=session_code,

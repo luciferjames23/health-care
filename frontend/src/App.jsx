@@ -45,6 +45,7 @@ import AgentRunsView from './components/AgentRunsView';
 import GovernedKnowledgeView from './components/GovernedKnowledgeView';
 import AiGovernanceView from './components/AiGovernanceView';
 import DischargeAgentView from './components/DischargeAgentView';
+import AG11FollowupAgentView from './components/AG11FollowupAgentView';
 import { DischargeAgentPipeline } from './agent';
 import EmployeeServiceChatbot from './components/EmployeeServiceChatbot';
 import ProtocolCopilot from './components/ProtocolCopilot';
@@ -720,6 +721,9 @@ export default function App() {
                 onOpenDischargeSummary={handleOpenDischargeSummary}
                 doctorName={auth?.name}
               />
+            )}
+            {activePage === 'followup-agent' && (
+              <AG11FollowupAgentView userRole={role} />
             )}
             {activePage === 'approvals' && <ApprovalsView onNavigate={setActivePage} userRole={role} onOpenModal={setModal} />}
             {activePage === 'preauth-desk' && (

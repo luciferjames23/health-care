@@ -1729,43 +1729,115 @@ def get_patient_feedback(
     limit: int = 50,
     offset: int = 0
 ):
+    import json
     conn = db_connector.get_connection()
     try:
         cur = db_connector.get_dict_cursor(conn)
-        where_clauses = ["1=1"]
-        params = []
+        where_f = ["1=1"]
+        where_e = ["1=1"]
+        params_f = []
+        params_e = []
+
         if patient_id is not None:
-            where_clauses.append("e.patient_id = %s")
-            params.append(patient_id)
-        
-        where_sql = " AND ".join(where_clauses)
-        cur.execute(f"""
-            SELECT 
-                e.id,
-                e.patient_id,
-                e.escalation_reason,
-                e.patient_question,
-                e.status,
-                e.resolution_notes,
-                e.created_at,
-                e.resolved_at
-            FROM escalations e
-            WHERE {where_sql}
-            ORDER BY e.created_at DESC NULLS LAST, e.id DESC
+            where_f.append("f.patient_id = %s")
+            params_f.append(patient_id)
+            where_e.append("e.patient_id = %s")
+            params_e.append(patient_id)
+
+        where_f_sql = " AND ".join(where_f)
+        where_e_sql = " AND ".join(where_e)
+
+        esc_exclude_clause = ""
+        if patient_id is not None:
+            esc_exclude_clause = "AND (patient_id = %s)"
+
+        query_sql = f"""
+            WITH combined_records AS (
+                SELECT 
+                    f.id AS raw_id,
+                    'FDB-' || f.id::text AS display_id,
+                    f.patient_id,
+                    COALESCE(f.original_feedback, f.ai_summary, 'Patient Feedback') AS feedback_text,
+                    COALESCE(f.ai_summary, f.original_feedback, 'Patient Feedback') AS summary_text,
+                    f.status,
+                    COALESCE(f.resolution_notes, 'Pending Review') AS resolution_notes,
+                    f.created_at,
+                    f.resolved_at,
+                    f.rating,
+                    f.sentiment,
+                    f.source,
+                    f.severity,
+                    f.categories,
+                    'patient_feedback' AS record_type,
+                    f.conversation_id
+                FROM patient_feedback f
+                WHERE {where_f_sql}
+
+                UNION ALL
+
+                SELECT 
+                    e.id AS raw_id,
+                    'ESC-' || e.id::text AS display_id,
+                    e.patient_id,
+                    COALESCE(e.patient_question, e.escalation_reason, 'Clinical Escalation') AS feedback_text,
+                    COALESCE(e.escalation_reason, e.patient_question, 'Clinical Escalation') AS summary_text,
+                    e.status,
+                    COALESCE(e.resolution_notes, 'Pending Clinical Review') AS resolution_notes,
+                    e.created_at,
+                    e.resolved_at,
+                    NULL::integer AS rating,
+                    'NEUTRAL' AS sentiment,
+                    'CLINICAL_ESCALATION' AS source,
+                    'MEDIUM' AS severity,
+                    '[]'::jsonb AS categories,
+                    'escalation' AS record_type,
+                    e.conversation_id
+                FROM escalations e
+                WHERE {where_e_sql}
+                  AND (
+                    e.conversation_id IS NULL 
+                    OR e.conversation_id NOT IN (
+                        SELECT conversation_id 
+                        FROM patient_feedback 
+                        WHERE conversation_id IS NOT NULL {esc_exclude_clause}
+                    )
+                  )
+            )
+            SELECT * FROM combined_records
+            ORDER BY created_at DESC NULLS LAST, raw_id DESC
             LIMIT %s OFFSET %s;
-        """, tuple(params + [limit, offset]))
+        """
+
+        exec_params = []
+        exec_params.extend(params_f)
+        exec_params.extend(params_e)
+        if patient_id is not None:
+            exec_params.append(patient_id)
+        exec_params.extend([limit, offset])
+
+        cur.execute(query_sql, tuple(exec_params))
         rows = cur.fetchall()
 
         formatted = []
         for r in rows:
             dt_str = r['created_at'].strftime('%d %b %Y') if r.get('created_at') else 'Recent'
             formatted.append({
-                "id": f"FDB-{r['id']}",
-                "reason": r['escalation_reason'],
-                "feedback": r['patient_question'] or r['escalation_reason'],
-                "status": r['status'] or 'In Progress',
-                "resolution": r['resolution_notes'] or 'Pending Clinical Review',
-                "date": dt_str
+                "id": r['display_id'],
+                "raw_id": r['raw_id'],
+                "patient_id": r['patient_id'],
+                "reason": r['summary_text'] or r['feedback_text'],
+                "feedback": r['feedback_text'],
+                "status": r['status'] or 'OPEN',
+                "resolution": r['resolution_notes'] or 'Pending Review',
+                "date": dt_str,
+                "created_at": r['created_at'].isoformat() if r.get('created_at') else None,
+                "rating": r['rating'],
+                "rating_display": f"{r['rating']}/10" if r['rating'] is not None else None,
+                "sentiment": r['sentiment'],
+                "source": r['source'],
+                "severity": r['severity'],
+                "categories": r['categories'] if isinstance(r['categories'], list) else (json.loads(r['categories']) if r['categories'] else []),
+                "record_type": r['record_type']
             })
 
         return {"success": True, "count": len(formatted), "data": formatted}
