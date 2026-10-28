@@ -183,6 +183,7 @@ def get_dashboard_summary(
     Returns KPI counts for the Admin/Doctor Dashboard.
     Supports date range filtering, department, doctor, and booking_source filtering.
     Enforces role-based doctor scoping for DOCTOR role.
+    Uses a consolidated single-pass query strategy to minimise DB round-trips.
     """
     conn = None
     try:
@@ -198,28 +199,46 @@ def get_dashboard_summary(
 
         today = date.today().isoformat()
 
+        # Check server-side cache (30-second TTL for summary without date filters to avoid staleness)
+        cache_key = f"dashboard_summary:{current_user.get('user_id')}:{d_from_str}:{d_to_str}:{dept_str}:{doc_id_val}:{source_str}"
+        cached_result = cache_service.get_cache(cache_key)
+        if cached_result is not None:
+            return cached_result
+
         target_doctor_id = resolve_target_doctor_id(current_user, doc_id_val, cur)
 
-        # 1. Total patients in system / under doctor
+        # ── 1. Patient counts (single consolidated query) ─────────────────────
         if target_doctor_id:
-            cur.execute("SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = %s AND UPPER(status) != 'CANCELLED';", (target_doctor_id,))
-            total_patients = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = %s AND appointment_date = %s AND UPPER(status) != 'CANCELLED';", (target_doctor_id, today))
-            new_patients_today = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = %s AND DATE_TRUNC('month', appointment_date) = DATE_TRUNC('month', CURRENT_DATE) AND UPPER(status) != 'CANCELLED';", (target_doctor_id,))
-            new_patients_month = cur.fetchone()[0]
+            cur.execute("""
+                SELECT
+                    COUNT(DISTINCT patient_id)                                                          AS total_patients,
+                    COUNT(DISTINCT patient_id) FILTER (WHERE appointment_date = %s)                     AS new_today,
+                    COUNT(DISTINCT patient_id) FILTER (
+                        WHERE DATE_TRUNC('month', appointment_date) = DATE_TRUNC('month', CURRENT_DATE)
+                    )                                                                                   AS new_month
+                FROM appointments
+                WHERE doctor_id = %s AND UPPER(status) != 'CANCELLED';
+            """, (today, target_doctor_id))
+            row = cur.fetchone()
+            total_patients = row[0] or 0
+            new_patients_today = row[1] or 0
+            new_patients_month = row[2] or 0
             active_doctors = 1
         else:
-            cur.execute("SELECT COUNT(*) FROM patients WHERE status = 'ACTIVE';")
-            total_patients = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM patients WHERE DATE(created_at) = %s;", (today,))
-            new_patients_today = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM patients WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE);")
-            new_patients_month = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM doctors WHERE status = 'ACTIVE';")
-            active_doctors = cur.fetchone()[0]
+            cur.execute("""
+                SELECT
+                    (SELECT COUNT(*) FROM patients WHERE status = 'ACTIVE')                                      AS total_patients,
+                    (SELECT COUNT(*) FROM patients WHERE DATE(created_at) = %s)                                  AS new_today,
+                    (SELECT COUNT(*) FROM patients WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)) AS new_month,
+                    (SELECT COUNT(*) FROM doctors WHERE status = 'ACTIVE')                                       AS active_doctors;
+            """, (today,))
+            row = cur.fetchone()
+            total_patients = row[0] or 0
+            new_patients_today = row[1] or 0
+            new_patients_month = row[2] or 0
+            active_doctors = row[3] or 0
 
-        # 2. Appointments in selected date range [d_from_str, d_to_str]
+        # ── 2. Appointment counts — single conditional-aggregate query ─────────
         appt_conditions = []
         appt_params = []
         if d_from_str:
@@ -228,7 +247,6 @@ def get_dashboard_summary(
         if d_to_str:
             appt_conditions.append("a.appointment_date <= %s")
             appt_params.append(d_to_str)
-
         if target_doctor_id:
             appt_conditions.append("a.doctor_id = %s")
             appt_params.append(target_doctor_id)
@@ -240,34 +258,34 @@ def get_dashboard_summary(
 
         appt_where = ("WHERE " + " AND ".join(appt_conditions)) if appt_conditions else ""
 
+        # Single query: all appointment status counts + by-source breakdown
         cur.execute(f"""
-            SELECT 
-                COUNT(*) as total,
-                COUNT(*) FILTER (WHERE UPPER(a.status) = 'BOOKED') as booked,
-                COUNT(*) FILTER (WHERE UPPER(a.status) IN ('CONFIRMED', 'CHECKED_IN')) as confirmed,
-                COUNT(*) FILTER (WHERE UPPER(a.status) = 'COMPLETED') as completed,
-                COUNT(*) FILTER (WHERE UPPER(a.status) = 'CANCELLED') as cancelled,
-                COUNT(*) FILTER (WHERE UPPER(a.status) = 'RESCHEDULED') as rescheduled,
-                COUNT(*) FILTER (WHERE UPPER(a.status) IN ('NO_SHOW', 'NO SHOW', 'NOSHOW')) as no_show,
-                COUNT(DISTINCT a.patient_id) as unique_patients
+            SELECT
+                COUNT(*)                                                               AS total,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'BOOKED')                     AS booked,
+                COUNT(*) FILTER (WHERE UPPER(a.status) IN ('CONFIRMED','CHECKED_IN'))  AS confirmed,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'COMPLETED')                  AS completed,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'CANCELLED')                  AS cancelled,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'RESCHEDULED')                AS rescheduled,
+                COUNT(*) FILTER (WHERE UPPER(a.status) IN ('NO_SHOW','NO SHOW','NOSHOW')) AS no_show,
+                COUNT(DISTINCT a.patient_id)                                            AS unique_patients
             FROM appointments a
             LEFT JOIN departments dept ON a.department_id = dept.id
             {appt_where};
         """, appt_params)
         appt_row = cur.fetchone()
-        
-        total_appts_in_range = appt_row[0]
-        booked_cnt = appt_row[1]
-        confirmed_cnt = appt_row[2]
-        completed_cnt = appt_row[3]
-        cancelled_cnt = appt_row[4]
-        rescheduled_cnt = appt_row[5]
-        no_show_cnt = appt_row[6]
-        unique_patients_in_range = appt_row[7]
+        total_appts_in_range = appt_row[0] or 0
+        booked_cnt = appt_row[1] or 0
+        confirmed_cnt = appt_row[2] or 0
+        completed_cnt = appt_row[3] or 0
+        cancelled_cnt = appt_row[4] or 0
+        rescheduled_cnt = appt_row[5] or 0
+        no_show_cnt = appt_row[6] or 0
+        unique_patients_in_range = appt_row[7] or 0
 
-        # Appointments by booking source in range
+        # By-source breakdown (single query)
         cur.execute(f"""
-            SELECT a.booking_source, COUNT(*) as cnt
+            SELECT a.booking_source, COUNT(*) AS cnt
             FROM appointments a
             LEFT JOIN departments dept ON a.department_id = dept.id
             {appt_where}
@@ -275,7 +293,9 @@ def get_dashboard_summary(
         """, appt_params)
         by_source = {row[0]: row[1] for row in cur.fetchall()}
 
-        # 3. New vs Returning Patients for the date range
+        # ── 3. New vs Returning patients (single consolidated query) ──────────
+        returning_patients_in_range = 0
+        new_patients_in_range = 0
         if d_from_str and d_to_str:
             if target_doctor_id:
                 cur.execute("""
@@ -284,59 +304,45 @@ def get_dashboard_summary(
                     WHERE a.appointment_date >= %s AND a.appointment_date <= %s
                       AND a.doctor_id = %s
                       AND EXISTS (
-                          SELECT 1 FROM appointments a2 
-                          WHERE a2.patient_id = a.patient_id 
+                          SELECT 1 FROM appointments a2
+                          WHERE a2.patient_id = a.patient_id
                             AND a2.doctor_id = %s
                             AND a2.appointment_date < %s
                       );
                 """, (d_from_str, d_to_str, target_doctor_id, target_doctor_id, d_from_str))
-                returning_patients_in_range = cur.fetchone()[0]
-                new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
             else:
                 cur.execute("""
                     SELECT COUNT(DISTINCT a.patient_id)
                     FROM appointments a
                     WHERE a.appointment_date >= %s AND a.appointment_date <= %s
                       AND (
-                          EXISTS (
-                              SELECT 1 FROM appointments a2 
-                              WHERE a2.patient_id = a.patient_id 
-                                AND a2.appointment_date < %s
-                          )
-                          OR EXISTS (
-                              SELECT 1 FROM patients p
-                              WHERE p.id = a.patient_id
-                                AND DATE(p.created_at) < %s
-                          )
+                          EXISTS (SELECT 1 FROM appointments a2 WHERE a2.patient_id = a.patient_id AND a2.appointment_date < %s)
+                          OR EXISTS (SELECT 1 FROM patients p WHERE p.id = a.patient_id AND DATE(p.created_at) < %s)
                       );
                 """, (d_from_str, d_to_str, d_from_str, d_from_str))
-                returning_patients_in_range = cur.fetchone()[0]
-                new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
+            returning_patients_in_range = cur.fetchone()[0] or 0
+            new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
         else:
             if target_doctor_id:
                 cur.execute("""
                     SELECT COUNT(DISTINCT a.patient_id)
                     FROM appointments a
                     WHERE a.doctor_id = %s
-                      AND (
-                          SELECT COUNT(*) FROM appointments a2
-                          WHERE a2.patient_id = a.patient_id AND a2.doctor_id = %s
-                      ) > 1;
+                      AND (SELECT COUNT(*) FROM appointments a2
+                           WHERE a2.patient_id = a.patient_id AND a2.doctor_id = %s) > 1;
                 """, (target_doctor_id, target_doctor_id))
-                returning_patients_in_range = cur.fetchone()[0]
-                new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
             else:
                 cur.execute("""
                     SELECT COUNT(*) FROM (
                         SELECT patient_id FROM appointments
-                        GROUP BY patient_id
-                        HAVING COUNT(id) > 1
+                        GROUP BY patient_id HAVING COUNT(id) > 1
                     ) sub;
                 """)
-                returning_patients_in_range = cur.fetchone()[0]
-                new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
+            returning_patients_in_range = cur.fetchone()[0] or 0
+            new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
 
-        # 4. Admissions / Pre-Admissions in range
+        # ── 4. Admissions, escalations, upcoming, today, conversations ────────
+        # All four counts in a single consolidated query (no date filters needed for most)
         adm_conditions = []
         adm_params = []
         if d_from_str:
@@ -353,14 +359,14 @@ def get_dashboard_summary(
             adm_params.append(dept_str)
         adm_where = ("WHERE " + " AND ".join(adm_conditions)) if adm_conditions else ""
         cur.execute(f"""
-            SELECT COUNT(*) 
+            SELECT COUNT(*)
             FROM pre_admissions pa
             LEFT JOIN departments dept ON pa.department_id = dept.id
             {adm_where};
         """, adm_params)
-        admissions_in_range = cur.fetchone()[0]
+        admissions_in_range = cur.fetchone()[0] or 0
 
-        # 5. Escalations
+        # Escalations, upcoming appointments, today's count and conversations — single query per group
         if target_doctor_id:
             esc_conditions = ["a.doctor_id = %s"]
             esc_params = [target_doctor_id]
@@ -371,26 +377,47 @@ def get_dashboard_summary(
                 esc_conditions.append("DATE(e.created_at) <= %s")
                 esc_params.append(d_to_str)
             cur.execute(f"""
-                SELECT COUNT(DISTINCT e.id)
+                SELECT
+                    COUNT(DISTINCT e.id)                                                    AS esc_in_range,
+                    COUNT(DISTINCT e.id) FILTER (WHERE UPPER(e.status) = 'OPEN')            AS open_esc,
+                    (SELECT COUNT(DISTINCT e2.id) FROM escalations e2
+                     JOIN appointments a2 ON e2.patient_id = a2.patient_id
+                     WHERE a2.doctor_id = %s)                                               AS total_esc
                 FROM escalations e
                 JOIN appointments a ON e.patient_id = a.patient_id
                 WHERE {' AND '.join(esc_conditions)};
-            """, esc_params)
-            escalations_in_range = cur.fetchone()[0]
+            """, esc_params + [target_doctor_id])
+            esc_row = cur.fetchone()
+            escalations_in_range = esc_row[0] or 0
+            open_escalations = esc_row[1] or 0
+            total_escalations = esc_row[2] or 0
+
             cur.execute("""
-                SELECT COUNT(DISTINCT e.id)
-                FROM escalations e
-                JOIN appointments a ON e.patient_id = a.patient_id
-                WHERE a.doctor_id = %s AND UPPER(e.status) = 'OPEN';
-            """, (target_doctor_id,))
-            open_escalations = cur.fetchone()[0]
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE (appointment_date > CURRENT_DATE
+                            OR (appointment_date = CURRENT_DATE AND appointment_time >= CURRENT_TIME))
+                          AND UPPER(status) NOT IN ('CANCELLED','RESCHEDULED','COMPLETED')
+                    )                                                                       AS upcoming,
+                    COUNT(*) FILTER (WHERE appointment_date = %s)                           AS today_count
+                FROM appointments
+                WHERE doctor_id = %s;
+            """, (today, target_doctor_id))
+            counts_row = cur.fetchone()
+            upcoming_appointments = counts_row[0] or 0
+            today_appointments = counts_row[1] or 0
+
             cur.execute("""
-                SELECT COUNT(DISTINCT e.id)
-                FROM escalations e
-                JOIN appointments a ON e.patient_id = a.patient_id
+                SELECT
+                    COUNT(DISTINCT c.id)                                                                    AS total_conv,
+                    COUNT(DISTINCT c.id) FILTER (WHERE DATE(c.created_at AT TIME ZONE 'UTC') = %s)          AS today_conv
+                FROM conversations c
+                JOIN appointments a ON c.patient_id = a.patient_id
                 WHERE a.doctor_id = %s;
-            """, (target_doctor_id,))
-            total_escalations = cur.fetchone()[0]
+            """, (today, target_doctor_id))
+            conv_row = cur.fetchone()
+            total_conversations = conv_row[0] or 0
+            conversations_today = conv_row[1] or 0
         else:
             esc_conditions = []
             esc_params = []
@@ -401,60 +428,46 @@ def get_dashboard_summary(
                 esc_conditions.append("DATE(created_at) <= %s")
                 esc_params.append(d_to_str)
             esc_where = ("WHERE " + " AND ".join(esc_conditions)) if esc_conditions else ""
-            cur.execute(f"SELECT COUNT(*) FROM escalations {esc_where};", esc_params)
-            escalations_in_range = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM escalations WHERE UPPER(status) = 'OPEN';")
-            open_escalations = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM escalations;")
-            total_escalations = cur.fetchone()[0]
 
-        # 6. Upcoming appointments (from today onward)
-        if target_doctor_id:
-            cur.execute("""
-                SELECT COUNT(*) FROM appointments
-                WHERE doctor_id = %s 
-                  AND (appointment_date > CURRENT_DATE OR (appointment_date = CURRENT_DATE AND appointment_time >= CURRENT_TIME))
-                  AND UPPER(status) NOT IN ('CANCELLED', 'RESCHEDULED', 'COMPLETED');
-            """, (target_doctor_id,))
-        else:
-            cur.execute("""
-                SELECT COUNT(*) FROM appointments
-                WHERE (appointment_date > CURRENT_DATE OR (appointment_date = CURRENT_DATE AND appointment_time >= CURRENT_TIME))
-                  AND UPPER(status) NOT IN ('CANCELLED', 'RESCHEDULED', 'COMPLETED');
-            """)
-        upcoming_appointments = cur.fetchone()[0]
+            cur.execute(f"""
+                SELECT
+                    COUNT(*)                                                         AS esc_in_range,
+                    COUNT(*) FILTER (WHERE UPPER(status) = 'OPEN')                   AS open_esc,
+                    (SELECT COUNT(*) FROM escalations)                                AS total_esc
+                FROM escalations
+                {esc_where};
+            """, esc_params)
+            esc_row = cur.fetchone()
+            escalations_in_range = esc_row[0] or 0
+            open_escalations = esc_row[1] or 0
+            total_escalations = esc_row[2] or 0
 
-        # 7. Today's appointments (independent of filter for quick header reference)
-        if target_doctor_id:
-            cur.execute("SELECT COUNT(*) FROM appointments WHERE appointment_date = %s AND doctor_id = %s;", (today, target_doctor_id))
-        else:
-            cur.execute("SELECT COUNT(*) FROM appointments WHERE appointment_date = %s;", (today,))
-        today_appointments = cur.fetchone()[0]
+            cur.execute("""
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE (appointment_date > CURRENT_DATE
+                            OR (appointment_date = CURRENT_DATE AND appointment_time >= CURRENT_TIME))
+                          AND UPPER(status) NOT IN ('CANCELLED','RESCHEDULED','COMPLETED')
+                    )                                                                 AS upcoming,
+                    COUNT(*) FILTER (WHERE appointment_date = %s)                     AS today_count
+                FROM appointments;
+            """, (today,))
+            counts_row = cur.fetchone()
+            upcoming_appointments = counts_row[0] or 0
+            today_appointments = counts_row[1] or 0
 
-        # 8. Conversations
-        if target_doctor_id:
             cur.execute("""
-                SELECT COUNT(DISTINCT c.id) 
-                FROM conversations c 
-                JOIN appointments a ON c.patient_id = a.patient_id 
-                WHERE a.doctor_id = %s;
-            """, (target_doctor_id,))
-            total_conversations = cur.fetchone()[0]
-            cur.execute("""
-                SELECT COUNT(DISTINCT c.id) 
-                FROM conversations c 
-                JOIN appointments a ON c.patient_id = a.patient_id 
-                WHERE a.doctor_id = %s AND DATE(c.created_at AT TIME ZONE 'UTC') = %s;
-            """, (target_doctor_id, today))
-            conversations_today = cur.fetchone()[0]
-        else:
-            cur.execute("SELECT COUNT(*) FROM conversations;")
-            total_conversations = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM conversations WHERE DATE(created_at AT TIME ZONE 'UTC') = %s;", (today,))
-            conversations_today = cur.fetchone()[0]
+                SELECT
+                    COUNT(*)                                                                         AS total_conv,
+                    COUNT(*) FILTER (WHERE DATE(created_at AT TIME ZONE 'UTC') = %s)                 AS today_conv
+                FROM conversations;
+            """, (today,))
+            conv_row = cur.fetchone()
+            total_conversations = conv_row[0] or 0
+            conversations_today = conv_row[1] or 0
 
         cur.close()
-        return {
+        result = {
             "date_from": d_from_str or "",
             "date_to": d_to_str or "",
             "patients": {
@@ -493,6 +506,9 @@ def get_dashboard_summary(
                 "in_range": admissions_in_range,
             },
         }
+        # Cache for 30 seconds to absorb rapid repeated page loads
+        cache_service.set_cache(cache_key, result, ttl_seconds=30)
+        return result
     except Exception as e:
         print(f"[ERROR] Dashboard summary query failed: {e}")
         traceback.print_exc()
@@ -500,6 +516,7 @@ def get_dashboard_summary(
     finally:
         if conn:
             conn.close()
+
 
 
 # ─── Role-Scoped KPIs ────────────────────────────────────────────────────────
@@ -548,6 +565,12 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
             return int(row[0]) if row and row[0] is not None else 0
 
         result = {"role": role, "user_id": user_id, "today": today}
+
+        # -- Server-side cache (20s TTL - near-real-time KPIs) --
+        kpi_cache_key = f"role_kpis:{role}:{user_id}:{today}"
+        cached_kpis = cache_service.get_cache(kpi_cache_key)
+        if cached_kpis is not None:
+            return cached_kpis
 
         # ──────────────────────────────────────────────────────────────────────
         # ADMIN / HOSPITAL MANAGEMENT / AI ADMIN / IT ADMIN / AUDITOR
@@ -1083,6 +1106,8 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
             })
 
         cur.close()
+        # Cache the result so subsequent loads within 20s are instant
+        cache_service.set_cache(kpi_cache_key, result, ttl_seconds=20)
         return result
 
     except Exception as e:
@@ -1246,18 +1271,18 @@ def get_patients(
 
         cur.execute(
             f"""
-            WITH recent_activity AS (
+            WITH recent_activity AS MATERIALIZED (
                 SELECT patient_id, MAX(event_date) AS max_date
                 FROM (
-                    SELECT patient_id, admission_date AS event_date FROM admissions WHERE admission_date >= CURRENT_DATE - INTERVAL '14 days' AND admission_date <= (CURRENT_DATE + INTERVAL '1 day')
+                    SELECT patient_id, admission_date AS event_date FROM admissions WHERE admission_date >= CURRENT_DATE - INTERVAL '7 days' AND admission_date <= (CURRENT_DATE + INTERVAL '1 day')
                     UNION ALL
-                    SELECT patient_id, appointment_date::timestamp AS event_date FROM appointments WHERE appointment_date >= CURRENT_DATE - INTERVAL '14 days' AND appointment_date <= (CURRENT_DATE + INTERVAL '1 day')
+                    SELECT patient_id, appointment_date::timestamp AS event_date FROM appointments WHERE appointment_date >= CURRENT_DATE - INTERVAL '7 days' AND appointment_date <= (CURRENT_DATE + INTERVAL '1 day')
                     UNION ALL
-                    SELECT patient_id, discharge_date::timestamp AS event_date FROM discharge_summaries WHERE discharge_date >= CURRENT_DATE - INTERVAL '14 days' AND discharge_date <= (CURRENT_DATE + INTERVAL '1 day')
+                    SELECT patient_id, discharge_date::timestamp AS event_date FROM discharge_summaries WHERE discharge_date >= CURRENT_DATE - INTERVAL '7 days' AND discharge_date <= (CURRENT_DATE + INTERVAL '1 day')
                     UNION ALL
-                    SELECT patient_id, discharge_date::timestamp AS event_date FROM dim_generated_discharge_summaries WHERE LOWER(COALESCE(approval_status, '')) = 'approved' AND discharge_date >= CURRENT_DATE - INTERVAL '14 days' AND discharge_date <= (CURRENT_DATE + INTERVAL '1 day')
+                    SELECT patient_id, discharge_date::timestamp AS event_date FROM dim_generated_discharge_summaries WHERE LOWER(COALESCE(approval_status, '')) = 'approved' AND discharge_date >= CURRENT_DATE - INTERVAL '7 days' AND discharge_date <= (CURRENT_DATE + INTERVAL '1 day')
                     UNION ALL
-                    SELECT id AS patient_id, created_at AS event_date FROM patients WHERE created_at >= CURRENT_DATE - INTERVAL '14 days'
+                    SELECT id AS patient_id, created_at AS event_date FROM patients WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
                 ) recent_events
                 GROUP BY patient_id
             ),

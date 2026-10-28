@@ -327,7 +327,7 @@ async function apiFetch<T>(path: string, options?: RequestInit & { externalSigna
 
   // Internal timeout controller — only used as a last-resort failsafe.
   const timeoutController = new AbortController();
-  const timer = setTimeout(() => timeoutController.abort(), 12000);
+  const timer = setTimeout(() => timeoutController.abort(), 20000);
 
   // Combine external signal (component unmount / stale request) with the
   // internal timeout signal so either can cancel the fetch.

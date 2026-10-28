@@ -3,7 +3,7 @@ import { clearSessionAuthToken, getSessionAuthToken } from './authToken';
 
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
-const FETCH_TIMEOUT_MS = 45000;
+const FETCH_TIMEOUT_MS = 15000;
 
 export { financialApi };
 
@@ -108,7 +108,7 @@ export async function fetchWithTimeout(url, options = {}) {
 async function fetchCachedJson(url, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
   const forceRefresh = Boolean(options.forceRefresh);
-  const revalidateMs = options.revalidateMs !== undefined ? options.revalidateMs : 1000; // 1s freshness threshold
+  const revalidateMs = options.revalidateMs !== undefined ? options.revalidateMs : 3000; // 3s freshness threshold
 
   // Non-GET requests should bypass cache and invalidate it
   if (method !== 'GET') {

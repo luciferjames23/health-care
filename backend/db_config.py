@@ -73,10 +73,10 @@ DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", _DEFAULT_SSLMO
 _pool_lock = threading.Lock()
 _connection_pool = None  # Lazy-initialized on first call
 
-_POOL_MIN = int(os.getenv("DB_POOL_MIN", "1"))
+_POOL_MIN = int(os.getenv("DB_POOL_MIN", "3"))
 # This database role is shared with other services and administrative clients.
-# Increase DB_POOL_MAX only when the role has spare connection capacity.
-_POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
+# 20 max connections provides enough capacity for concurrent dashboard, patient, and WhatsApp requests.
+_POOL_MAX = int(os.getenv("DB_POOL_MAX", "20"))
 
 
 class _PooledConnection:
@@ -158,7 +158,8 @@ def _get_pool(database_name=None):
                     user=user,
                     password=password,
                     sslmode="prefer" if _is_local_host(h) else "require",
-                    connect_timeout=2,
+                    connect_timeout=5,
+                    options="-c statement_timeout=30000",
                 )
                 print(f"[PERF] Shared PostgreSQL connection pool initialized on {h} (min={_POOL_MIN}, max={_POOL_MAX})")
                 break
@@ -205,7 +206,8 @@ def get_db_connection(database_name=None):
                 user=user,
                 password=password,
                 sslmode="prefer" if _is_local_host(h) else "require",
-                connect_timeout=2
+                connect_timeout=5,
+                options="-c statement_timeout=30000",
             )
         except Exception as e:
             last_exc = e
