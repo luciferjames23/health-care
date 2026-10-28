@@ -6,6 +6,7 @@ import PatientRegistrationModal from "./PatientRegistrationModal";
 import SearchInput from "./SearchInput";
 import TablePagination from "./TablePagination";
 import DateRangeFilter, { isDateInRange, formatFriendlyDate } from "./DateRangeFilter";
+import LoadingSpinner from "./LoadingSpinner";
 
 function getStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Unknown" };
@@ -962,34 +963,12 @@ export default function PatientsView({
 
         {/* Searching overlay */}
         {(viewLoading || isSearching || isDateFiltering) && rows.length > 0 && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "rgba(255, 255, 255, 0.6)",
-              backdropFilter: "blur(1px)",
-              zIndex: 8,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "8px",
-              fontSize: "12px",
-              fontWeight: 600,
-              color: "#0284c7"
-            }}
-          >
-            <div
-              style={{
-                width: "16px",
-                height: "16px",
-                border: "2px solid #0284c7",
-                borderTopColor: "transparent",
-                borderRadius: "50%",
-                animation: "spin 0.6s linear infinite"
-              }}
-            />
-            <span>{isDateFiltering ? "Filtering records by date range..." : isSearching ? "Filtering patient directory..." : "Filtering patient directory..."}</span>
-          </div>
+          <LoadingSpinner
+            overlay
+            size="md"
+            color="#0284c7"
+            text={isDateFiltering ? "Filtering records by date range..." : "Filtering patient directory..."}
+          />
         )}
 
         {viewLoading && rows.length === 0 ? (

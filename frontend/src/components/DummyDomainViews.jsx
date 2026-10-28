@@ -5,6 +5,7 @@ import TablePagination from './TablePagination';
 import BillingTransparencyDrawer from './BillingTransparencyDrawer';
 import { labCollectionEventsApi } from '../services/labCollectionEventsApi';
 import DateRangeFilter, { isDateInRange } from './DateRangeFilter.jsx';
+import { ButtonSpinner } from './LoadingSpinner';
 
 // Common badge and card helpers
 const cardStyle = {
@@ -40,7 +41,7 @@ const erFilterSelect = {
   fontWeight: 500
 };
 
-function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', onNew, newLabel = '+ New Record' }) {
+function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', onNew, newLabel = '+ New Record', newLoading = false }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', gap: '16px', flexWrap: 'wrap' }}>
       <div>
@@ -63,6 +64,7 @@ function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', 
         {onNew && (
           <button
             type="button"
+            disabled={newLoading}
             onClick={onNew}
             style={{
               height: '32px',
@@ -73,13 +75,15 @@ function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', 
               color: '#ffffff',
               fontSize: '12px',
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: newLoading ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.06)'
+              boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+              opacity: newLoading ? 0.75 : 1
             }}
           >
+            <ButtonSpinner loading={newLoading} />
             {newLabel}
           </button>
         )}
@@ -4211,7 +4215,8 @@ export function LabWorkQueueView({ onOpenDrawer, userRole }) {
                   {canGenerate ? <>
                     <button type="button" disabled={processingId === order.lab_order_id}
                       onClick={() => generate(order)}
-                      style={{ padding: '6px 9px', border: 0, borderRadius: '5px', background: '#087e8b', color: '#fff', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : 'pointer' }}>
+                      style={{ padding: '6px 9px', border: 0, borderRadius: '5px', background: '#087e8b', color: '#fff', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <ButtonSpinner loading={processingId === order.lab_order_id} />
                       {processingId === order.lab_order_id ? 'Generating...' : 'Generate Demo Result'}
                     </button>
                   </> : <button type="button" onClick={() => openLabOrder(order, onOpenDrawer)}
@@ -4223,7 +4228,8 @@ export function LabWorkQueueView({ onOpenDrawer, userRole }) {
                       disabled={!canGenerateCriticalQa || processingId === order.lab_order_id}
                       onClick={() => generateCriticalQa(order)}
                       title={!canGenerateCriticalQa ? 'An active, approved AG17 synthetic QA rule is required.' : undefined}
-                      style={{ display: 'block', marginTop: 6, padding: '6px 9px', border: '1px solid #b45309', borderRadius: '5px', background: canGenerateCriticalQa ? '#fffbeb' : '#f8fafc', color: canGenerateCriticalQa ? '#92400e' : '#64748b', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : canGenerateCriticalQa ? 'pointer' : 'not-allowed' }}>
+                      style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: 6, padding: '6px 9px', border: '1px solid #b45309', borderRadius: '5px', background: canGenerateCriticalQa ? '#fffbeb' : '#f8fafc', color: canGenerateCriticalQa ? '#92400e' : '#64748b', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : canGenerateCriticalQa ? 'pointer' : 'not-allowed' }}>
+                      <ButtonSpinner loading={processingId === order.lab_order_id} />
                       {processingId === order.lab_order_id ? 'Generating critical result...' : 'Generate Critical Demo Result'}
                     </button>
                     {!canGenerateCriticalQa && <span style={{ display: 'block', marginTop: 4, color: '#64748b', fontSize: 10 }}>Awaiting approved AG17 synthetic QA rule</span>}
@@ -6735,6 +6741,7 @@ export function NotificationsView({ onOpenDrawer, onOpenModal }) {
         subtitle={`${unreadCount} unread platform notifications · clinical safety alerts, agent approvals, SLA breaches and statutory escalations`}
         count={totalCount}
         onNew={handleMarkAllRead}
+        newLoading={isSubmitting}
         newLabel={isSubmitting ? "Updating..." : "Mark All Read"}
         onExport={handleExportCSV}
       />

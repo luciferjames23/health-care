@@ -4,6 +4,7 @@ import { fetchDashboardSummary, updateDoctorSelfProfile, isValidEmail, isValidPh
 import { Mail, Phone, Building2, Stethoscope, Edit3, Save, X, CheckCircle, Lock, User } from 'lucide-react';
 import logo from '../../assets/logo.svg';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
+import { ButtonSpinner } from '../../components/LoadingSpinner';
 
 interface DoctorProfileProps {
   user?: any;
@@ -265,7 +266,8 @@ const DoctorProfile: React.FC<DoctorProfileProps> = ({ user: propUser }) => {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-secondary" onClick={() => setEditMode(false)} disabled={saving}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Save size={15} /> {saving ? 'Saving...' : 'Save Profile Changes'}
+                <ButtonSpinner loading={saving} />
+                {!saving && <Save size={15} />} {saving ? 'Saving...' : 'Save Profile Changes'}
               </button>
             </div>
           </div>

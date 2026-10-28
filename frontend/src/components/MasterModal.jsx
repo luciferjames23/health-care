@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
+import { ButtonSpinner } from './LoadingSpinner';
 
 export const MASTER_CONFIGS = {
   drugs: {
@@ -870,7 +871,8 @@ function SbarEditInlineForm({ modal, onClose }) {
           Cancel
         </button>
         <button type="submit" disabled={saving}
-          style={{ height: '34px', padding: '0 22px', borderRadius: '6px', border: 0, background: saving ? '#94a3b8' : 'oklch(0.5 0.1 200)', color: '#fff', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontSize: '12px' }}>
+          style={{ height: '34px', padding: '0 22px', borderRadius: '6px', border: 0, background: saving ? '#94a3b8' : 'oklch(0.5 0.1 200)', color: '#fff', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <ButtonSpinner loading={saving} />
           {saving ? 'Saving...' : '✓ Save SBAR Note'}
         </button>
       </div>

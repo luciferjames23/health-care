@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, RefreshCw, CheckCircle2, User, HeartPulse, Building2, ShieldCheck, Phone, AlertCircle, ArrowRight, Lock, BedDouble, Check } from 'lucide-react';
 import { apiService, matchesDoctor } from '../services/api';
+import { LoadingSpinner, ButtonSpinner } from './LoadingSpinner';
 
 export default function PatientRegistrationModal({
   isOpen,
@@ -831,8 +832,8 @@ export default function PatientRegistrationModal({
                       gap: '4px'
                     }}
                   >
-                    <RefreshCw size={12} className={loadingId ? 'animate-spin' : ''} />
-                    <span>Refresh ID</span>
+                    {loadingId ? <ButtonSpinner size={12} color="#0284c7" /> : <RefreshCw size={12} />}
+                    <span>{loadingId ? 'Allocating ID...' : 'Refresh ID'}</span>
                   </button>
                 </div>
               </div>
@@ -1378,7 +1379,7 @@ export default function PatientRegistrationModal({
                     gap: '6px'
                   }}
                 >
-                  {submitting && <RefreshCw size={14} className="animate-spin" />}
+                  {submitting && <ButtonSpinner size={13} />}
                   <span>{submitting ? 'Registering to DB...' : 'Save & Register Patient'}</span>
                 </button>
               </div>

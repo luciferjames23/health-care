@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fetchUserProfile } from '../services/accountSession';
+import { LoadingSpinner } from './LoadingSpinner';
 
 function cleanValue(val) {
   if (val === null || val === undefined) return null;
@@ -203,7 +204,8 @@ export default function UserProfileModal({ user, onClose, onSignOut }) {
             </div>
 
             {loading && (
-              <div style={{ fontSize: '10.5px', color: '#0284c7', marginTop: '4px' }}>
+              <div style={{ fontSize: '10.5px', color: '#0284c7', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <LoadingSpinner inline size="xs" color="#0284c7" />
                 Synchronizing live database details…
               </div>
             )}

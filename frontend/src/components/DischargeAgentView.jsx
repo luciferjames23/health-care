@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiService, cleanDiagnosis } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
 import { CardGridSkeleton } from './ModuleLoadingScreen';
+import { ButtonSpinner } from './LoadingSpinner';
 
 export default function DischargeAgentView({ onNavigate, initialPatientId = '' }) {
   const [activeTab, setActiveTab] = useState('flow'); // 'flow' | 'inspector'
@@ -1129,6 +1130,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                                     display: 'flex', alignItems: 'center', gap: '4px'
                                   }}
                                 >
+                                  <ButtonSpinner loading={agentSaving} />
                                   {agentSaving ? 'Saving...' : '✓ Approve'}
                                 </button>
                               )}
@@ -1158,6 +1160,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                                   display: 'flex', alignItems: 'center', gap: '4px'
                                 }}
                               >
+                                <ButtonSpinner loading={agentSaving} />
                                 {agentSaving ? 'Saving...' : '💾 Save Changes'}
                               </button>
                             </>
@@ -1345,6 +1348,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                                 fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
                               }}
                             >
+                              <ButtonSpinner loading={agentSaving} />
                               {agentSaving ? 'Saving...' : '💾 Save Changes'}
                             </button>
                           </div>

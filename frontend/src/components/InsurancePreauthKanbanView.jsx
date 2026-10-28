@@ -3,6 +3,7 @@ import { apiService } from '../services/api';
 import PreauthDossierDrawer from './PreauthDossierDrawer';
 import ClaimAppealDrawer from './ClaimAppealDrawer';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
+import { ButtonSpinner } from './LoadingSpinner';
 
 export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }) {
   const [cases, setCases] = useState([]);
@@ -1042,6 +1043,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
                   boxShadow: '0 1px 2px rgba(124, 58, 237, 0.2)'
                 }}
               >
+                <ButtonSpinner loading={isProcessing} />
                 {isProcessing ? 'Submitting...' : '⚡ Submit TPA (1-Click)'}
               </button>
             </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Send, Mic, RotateCcw, AlertTriangle, Play, Square, Volume2, VolumeX, CheckCheck, Menu, X, ChevronRight
 } from 'lucide-react';
+import { LoadingSpinner } from '../components/LoadingSpinner';
 
 interface ChatMessage {
   id: string;
@@ -210,7 +211,7 @@ const PatientChat: React.FC = () => {
 
   // Text message submit
   const sendMessage = async (textToSend: string, buttonId?: string) => {
-    if (!textToSend.trim()) return;
+    if (!textToSend.trim() || isTyping) return;
 
     // Track active section if a category button was clicked
     const matchedService = SIDEBAR_SERVICES.find(s => s.id === buttonId || textToSend.includes(s.title));
@@ -452,7 +453,7 @@ const PatientChat: React.FC = () => {
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !isTyping) {
       sendMessage(inputText);
     }
   };
@@ -991,14 +992,13 @@ const PatientChat: React.FC = () => {
               borderRadius: '0px 12px 12px 12px',
               boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
               fontSize: '13px',
-              color: '#666',
-              fontStyle: 'italic',
+              color: '#075E54',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px'
+              gap: '8px'
             }}>
-              <span className="dot-blink" style={{ display: 'inline-block', width: '6px', height: '6px', background: '#999', borderRadius: '50%' }}></span>
-              Hospital AI Assistant is typing...
+              <LoadingSpinner size={16} color="#075E54" />
+              <span>Hospital AI Assistant is typing...</span>
             </div>
           )}
 
@@ -1016,8 +1016,8 @@ const PatientChat: React.FC = () => {
               alignItems: 'center',
               gap: '8px'
             }}>
-              <span className="dot-blink" style={{ display: 'inline-block', width: '6px', height: '6px', background: '#0d47a1', borderRadius: '50%' }}></span>
-              {recordingStatus}
+              <LoadingSpinner size={14} color="#0d47a1" />
+              <span>{recordingStatus}</span>
             </div>
           )}
 
@@ -1092,26 +1092,31 @@ const PatientChat: React.FC = () => {
             {isRecording ? <Square size={16} /> : <Mic size={20} />}
           </button>
 
-          {/* Send Arrow Button */}
+          {/* Send Arrow Button with Circular Loading Spinner */}
           <button
             onClick={() => sendMessage(inputText)}
-            disabled={isRecording || !inputText.trim()}
+            disabled={isRecording || !inputText.trim() || isTyping}
             style={{
               width: '42px',
               height: '42px',
               borderRadius: '50%',
               border: 'none',
-              background: (!inputText.trim() || isRecording) ? '#b0bec5' : '#128C7E',
+              background: (!inputText.trim() || isRecording || isTyping) ? '#b0bec5' : '#128C7E',
               color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              cursor: 'pointer',
+              cursor: isTyping ? 'wait' : (!inputText.trim() || isRecording) ? 'not-allowed' : 'pointer',
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
               transition: 'background 0.2s'
             }}
+            title={isTyping ? "Sending message..." : "Send"}
           >
-            <Send size={18} />
+            {isTyping ? (
+              <LoadingSpinner size={18} color="#ffffff" trackColor="rgba(255, 255, 255, 0.3)" />
+            ) : (
+              <Send size={18} />
+            )}
           </button>
         </div>
       </div>

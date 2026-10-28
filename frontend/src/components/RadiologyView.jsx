@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, StatusBadge, InfoRow, btn, primaryBtn, statusRank, formatTableDateTime, isDateInRange } from './RadiologyShared';
 import RagAssistantPanel from './RagAssistantPanel';
+import { ButtonSpinner } from './LoadingSpinner';
 
 const POLL_MS = 5000;
 
@@ -620,9 +621,10 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise, reviewerName, onSe
                 <button
                   disabled={busy}
                   type="button"
-                  style={{ ...primaryBtn, cursor: busy ? 'wait' : 'pointer' }}
+                  style={{ ...primaryBtn, cursor: busy ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
                   onClick={() => onFinalise('Confirmed', cleanReport(actualSummary || reportText), detail.radiologist_finding || actualFinding)}
                 >
+                  <ButtonSpinner loading={busy} />
                   Confirm AI Finding
                 </button>
                 <button
@@ -690,12 +692,13 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise, reviewerName, onSe
                 <button
                   disabled={busy}
                   type="button"
-                  style={{ ...primaryBtn, cursor: busy ? 'wait' : 'pointer' }}
+                  style={{ ...primaryBtn, cursor: busy ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
                   onClick={() => {
                     onFinalise('Confirmed', reportText, findingText);
                     setIsEditingReport(false);
                   }}
                 >
+                  <ButtonSpinner loading={busy} />
                   {busy ? 'Saving...' : 'Confirm & Save Report'}
                 </button>
                 <button

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { UserPlus, X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { UserPlus, X, CheckCircle, AlertCircle } from 'lucide-react';
+import { ButtonSpinner } from './LoadingSpinner';
 import { addPatientWhatsApp, type AddPatientWhatsAppResponse } from '../services/dashboardApi';
 
 interface AddPatientModalProps {
@@ -191,7 +192,7 @@ const AddPatientModal: React.FC<AddPatientModalProps> = ({ isOpen, onClose, onSu
                 gap: 8
               }}
             >
-              {loading && <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />}
+              <ButtonSpinner loading={loading} />
               Save
             </button>
           </div>

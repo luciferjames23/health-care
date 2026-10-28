@@ -21,6 +21,7 @@ import {
   Users, Clock, CheckCircle2, UserCheck, Play, PhoneCall,
   RefreshCw, AlertCircle, Calendar, CheckSquare, Pause, Stethoscope
 } from 'lucide-react';
+import { LoadingSpinner, ButtonSpinner } from '../../components/LoadingSpinner';
 
 interface TodaysQueueViewProps {
   onNavigate?: (page: string, patient?: any) => void;
@@ -59,6 +60,9 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [checkingInId, setCheckingInId] = useState<number | null>(null);
+  const [callingNext, setCallingNext] = useState(false);
+  const [startingConsultationId, setStartingConsultationId] = useState<number | null>(null);
+  const [completingConsultationId, setCompletingConsultationId] = useState<number | null>(null);
 
   const todayDateStr = new Date().toLocaleDateString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric'
@@ -193,32 +197,50 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
   };
 
   const handleCallNext = async (sessionId: number) => {
-    const res = await callNextPatient(sessionId);
-    if (res.success) {
-      showFeedback('success', `🚨 ${res.message || 'Next patient called. WhatsApp sent.'}`);
-      loadData();
-    } else {
-      showFeedback('error', `❌ ${res.error || 'Failed to call next patient.'}`);
+    if (callingNext) return;
+    setCallingNext(true);
+    try {
+      const res = await callNextPatient(sessionId);
+      if (res.success) {
+        showFeedback('success', `🚨 ${res.message || 'Next patient called. WhatsApp sent.'}`);
+        loadData();
+      } else {
+        showFeedback('error', `❌ ${res.error || 'Failed to call next patient.'}`);
+      }
+    } finally {
+      setCallingNext(false);
     }
   };
 
   const handleStartConsultation = async (entryId: number) => {
-    const res = await startConsultation(entryId);
-    if (res.success) {
-      showFeedback('success', `👨‍⚕️ ${res.message || 'Consultation started.'}`);
-      loadData();
-    } else {
-      showFeedback('error', `❌ ${res.error || 'Failed to start consultation.'}`);
+    if (startingConsultationId) return;
+    setStartingConsultationId(entryId);
+    try {
+      const res = await startConsultation(entryId);
+      if (res.success) {
+        showFeedback('success', `👨‍⚕️ ${res.message || 'Consultation started.'}`);
+        loadData();
+      } else {
+        showFeedback('error', `❌ ${res.error || 'Failed to start consultation.'}`);
+      }
+    } finally {
+      setStartingConsultationId(null);
     }
   };
 
   const handleCompleteConsultation = async (entryId: number) => {
-    const res = await completeConsultation(entryId);
-    if (res.success) {
-      showFeedback('success', `🎉 ${res.message || 'Consultation completed. Next patient notified.'}`);
-      loadData();
-    } else {
-      showFeedback('error', `❌ ${res.error || 'Failed to complete consultation.'}`);
+    if (completingConsultationId) return;
+    setCompletingConsultationId(entryId);
+    try {
+      const res = await completeConsultation(entryId);
+      if (res.success) {
+        showFeedback('success', `🎉 ${res.message || 'Consultation completed. Next patient notified.'}`);
+        loadData();
+      } else {
+        showFeedback('error', `❌ ${res.error || 'Failed to complete consultation.'}`);
+      }
+    } finally {
+      setCompletingConsultationId(null);
     }
   };
 
@@ -299,6 +321,19 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
             </div>
           )}
 
+          <button
+            onClick={loadData}
+            disabled={loading}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '8px',
+              border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', fontWeight: 600,
+              cursor: loading ? 'wait' : 'pointer', fontSize: '13px'
+            }}
+          >
+            {loading ? <ButtonSpinner size={13} color="#2563eb" /> : <RefreshCw size={14} />}
+            <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+
           {(!session || queueStatus === 'NOT STARTED') && (
             <button
               onClick={handleStartQueueSession}
@@ -306,10 +341,10 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px',
                 border: 'none', background: '#16a34a', color: '#fff', fontWeight: 700,
-                cursor: 'pointer', fontSize: '13px', boxShadow: '0 2px 4px rgba(22,163,74,0.2)'
+                cursor: startingSession ? 'wait' : 'pointer', fontSize: '13px', boxShadow: '0 2px 4px rgba(22,163,74,0.2)'
               }}
             >
-              <Play size={14} />
+              {startingSession ? <ButtonSpinner /> : <Play size={14} />}
               {startingSession ? 'Starting...' : 'Start OPD Queue'}
             </button>
           )}
@@ -321,10 +356,10 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px',
                 border: 'none', background: queueStatus === 'ACTIVE' ? '#d97706' : '#2563eb', color: '#fff', fontWeight: 700,
-                cursor: 'pointer', fontSize: '13px'
+                cursor: pausingSession ? 'wait' : 'pointer', fontSize: '13px'
               }}
             >
-              <Pause size={14} />
+              {pausingSession ? <ButtonSpinner /> : <Pause size={14} />}
               {pausingSession ? 'Processing...' : queueStatus === 'ACTIVE' ? 'Pause Queue' : 'Resume Queue'}
             </button>
           )}
@@ -443,26 +478,30 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
                 {currentPatient.queue_status === 'CALLED' && (
                   <button
                     onClick={() => handleStartConsultation(currentPatient.entry_id)}
+                    disabled={startingConsultationId === currentPatient.entry_id}
                     style={{
                       flex: 1, padding: '10px 16px', background: '#2563eb', color: '#fff', border: 'none',
-                      borderRadius: '8px', fontWeight: 700, fontSize: '14px', cursor: 'pointer',
+                      borderRadius: '8px', fontWeight: 700, fontSize: '14px', cursor: startingConsultationId ? 'wait' : 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
                     }}
                   >
-                    <Play size={16} /> Start Consultation
+                    {startingConsultationId === currentPatient.entry_id ? <ButtonSpinner /> : <Play size={16} />}
+                    <span>{startingConsultationId === currentPatient.entry_id ? 'Starting...' : 'Start Consultation'}</span>
                   </button>
                 )}
 
                 {currentPatient.queue_status === 'IN_CONSULTATION' && (
                   <button
                     onClick={() => handleCompleteConsultation(currentPatient.entry_id)}
+                    disabled={completingConsultationId === currentPatient.entry_id}
                     style={{
                       flex: 1, padding: '10px 16px', background: '#16a34a', color: '#fff', border: 'none',
-                      borderRadius: '8px', fontWeight: 700, fontSize: '14px', cursor: 'pointer',
+                      borderRadius: '8px', fontWeight: 700, fontSize: '14px', cursor: completingConsultationId ? 'wait' : 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
                     }}
                   >
-                    <CheckSquare size={16} /> Complete Consultation
+                    {completingConsultationId === currentPatient.entry_id ? <ButtonSpinner /> : <CheckSquare size={16} />}
+                    <span>{completingConsultationId === currentPatient.entry_id ? 'Completing...' : 'Complete Consultation'}</span>
                   </button>
                 )}
               </div>
@@ -502,13 +541,15 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
 
               <button
                 onClick={() => session && handleCallNext(session.session_id)}
+                disabled={callingNext}
                 style={{
                   width: '100%', padding: '10px 16px', background: '#d97706', color: '#fff', border: 'none',
-                  borderRadius: '8px', fontWeight: 700, fontSize: '14px', cursor: 'pointer',
+                  borderRadius: '8px', fontWeight: 700, fontSize: '14px', cursor: callingNext ? 'wait' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
                 }}
               >
-                <PhoneCall size={16} /> Call Next Patient
+                {callingNext ? <ButtonSpinner /> : <PhoneCall size={16} />}
+                <span>{callingNext ? 'Calling Patient...' : 'Call Next Patient'}</span>
               </button>
             </div>
           ) : (
@@ -640,12 +681,12 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
                             disabled={checkingInId === appt.id}
                             style={{
                               padding: '6px 14px', background: '#16a34a', color: '#fff', border: 'none',
-                              borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                              borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: checkingInId === appt.id ? 'wait' : 'pointer',
                               display: 'inline-flex', alignItems: 'center', gap: '6px'
                             }}
                           >
-                            <UserCheck size={14} />
-                            {checkingInId === appt.id ? 'Checking In...' : 'Check In'}
+                            {checkingInId === appt.id ? <ButtonSpinner size={12} /> : <UserCheck size={14} />}
+                            <span>{checkingInId === appt.id ? 'Checking In...' : 'Check In'}</span>
                           </button>
                         ) : (
                           <span style={{ color: '#16a34a', fontSize: '12px', fontWeight: 700 }}>

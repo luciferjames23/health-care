@@ -6,6 +6,7 @@ import {
   type Doctor, type Department, type NewDoctorPayload
 } from '../../services/dashboardApi';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
+import { LoadingSpinner, ButtonSpinner } from '../../components/LoadingSpinner';
 
 const STATUS_CLASS: Record<string, string> = {
   ACTIVE: 'active',
@@ -367,9 +368,9 @@ const DoctorManagement: React.FC = () => {
               <option value="ON_LEAVE">On Leave</option>
             </select>
             <button className="btn btn-secondary btn-sm" onClick={loadDoctors} disabled={loading}
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              Refresh
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {loading ? <ButtonSpinner size={13} color="var(--primary)" /> : <RefreshCw size={13} />}
+              {loading ? 'Refreshing...' : 'Refresh'}
             </button>
             <button className="btn btn-primary" onClick={() => setShowModal(true)}
               style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -467,8 +468,12 @@ const DoctorManagement: React.FC = () => {
           )}
         </div>
 
-        <div style={{ padding: '12px 22px', fontSize: 13, color: 'var(--text-muted)' }}>
-          {loading ? 'Loading...' : `${doctors.length} doctor(s) shown`}
+        <div style={{ padding: '12px 22px', fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {loading ? (
+            <LoadingSpinner inline size="xs" text="Loading doctor records..." />
+          ) : (
+            `${doctors.length} doctor(s) shown`
+          )}
         </div>
       </div>
 
@@ -606,7 +611,8 @@ const DoctorManagement: React.FC = () => {
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 16, borderTop: '1px solid var(--border)' }}>
                 <button className="btn btn-secondary" onClick={handleModalClose} disabled={submitting}>Cancel</button>
                 <button className="btn btn-primary" onClick={handleAddDoctor} disabled={submitting} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Save size={15} /> {submitting ? 'Adding...' : 'Add Doctor'}
+                  {submitting ? <ButtonSpinner /> : <Save size={15} />}
+                  <span>{submitting ? 'Adding Doctor...' : 'Add Doctor'}</span>
                 </button>
               </div>
             </div>
@@ -702,7 +708,8 @@ const DoctorManagement: React.FC = () => {
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 16, borderTop: '1px solid var(--border)' }}>
                 <button className="btn btn-secondary" onClick={() => setShowEditModal(false)} disabled={editSubmitting}>Cancel</button>
                 <button className="btn btn-primary" onClick={handleUpdateDoctor} disabled={editSubmitting} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Save size={15} /> {editSubmitting ? 'Saving...' : 'Save Doctor Details'}
+                  {editSubmitting ? <ButtonSpinner /> : <Save size={15} />}
+                  <span>{editSubmitting ? 'Saving Details...' : 'Save Doctor Details'}</span>
                 </button>
               </div>
             </div>

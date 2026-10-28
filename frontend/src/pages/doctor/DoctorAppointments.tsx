@@ -6,6 +6,7 @@ import {
 import { CheckCircle, XCircle, RefreshCw, Search, Calendar, UserCheck } from 'lucide-react';
 import DateRangeFilter, { type DateRangeValue, formatFriendlyDate, toYMD } from '../../components/DateRangeFilter';
 import { TableSkeleton } from '../../components/ModuleLoadingScreen';
+import { LoadingSpinner, ButtonSpinner } from '../../components/LoadingSpinner';
 
 const STATUS_CLASS: Record<string, string> = {
   BOOKED: 'pending',
@@ -56,6 +57,7 @@ const DoctorAppointments: React.FC<DoctorAppointmentsProps> = ({ user: propUser 
   const [apiError, setApiError] = useState<string | null>(null);
   const [toast, setToast] = useState('');
   const [total, setTotal] = useState(0);
+  const [actionLoadingId, setActionLoadingId] = useState<string | number | null>(null);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -90,7 +92,7 @@ const DoctorAppointments: React.FC<DoctorAppointmentsProps> = ({ user: propUser 
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, sourceFilter, dateRange]);
+  }, [doctorId, search, statusFilter, sourceFilter, dateRange]);
 
   useEffect(() => {
     const timer = setTimeout(loadAppointments, 300);
@@ -98,33 +100,53 @@ const DoctorAppointments: React.FC<DoctorAppointmentsProps> = ({ user: propUser 
   }, [loadAppointments]);
 
   const handleStatusUpdate = async (bookingId: string, newStatus: string, reason?: string) => {
-    const ok = await updateAppointmentStatus(bookingId, newStatus, reason);
-    if (ok) {
-      showToast(`Appointment ${bookingId} → ${newStatus}`);
-      loadAppointments();
-    } else {
-      showToast('❌ Status update failed.');
+    setActionLoadingId(bookingId);
+    try {
+      const ok = await updateAppointmentStatus(bookingId, newStatus, reason);
+      if (ok) {
+        showToast(`Appointment ${bookingId} → ${newStatus}`);
+        loadAppointments();
+      } else {
+        showToast('❌ Status update failed.');
+      }
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
   const handleCheckIn = async (appointmentId: number, patientName: string) => {
-    const res = await checkInPatient(appointmentId);
-    if (res.success) {
-      showToast(`✅ Patient ${patientName} checked in. Token #${res.data?.token_number} assigned.`);
-      loadAppointments();
-    } else {
-      showToast(`❌ ${res.error || 'Check-in failed.'}`);
+    setActionLoadingId(appointmentId);
+    try {
+      const res = await checkInPatient(appointmentId);
+      if (res.success) {
+        showToast(`✅ Patient ${patientName} checked in. Token #${res.data?.token_number} assigned.`);
+        loadAppointments();
+      } else {
+        showToast(`❌ ${res.error || 'Check-in failed.'}`);
+      }
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
   return (
     <div>
       <div className="page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h2>My Appointments</h2>
             <p>Appointments for {user?.name}{user?.department ? ` — ${user?.department}` : ''}</p>
           </div>
+          <button
+            className="btn btn-secondary"
+            onClick={() => loadAppointments()}
+            disabled={loading}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <ButtonSpinner loading={loading} />
+            {!loading && <RefreshCw size={15} />}
+            Refresh
+          </button>
         </div>
       </div>
 
@@ -281,38 +303,49 @@ const DoctorAppointments: React.FC<DoctorAppointmentsProps> = ({ user: propUser 
                         {!a.queue_status && (a.status === 'CONFIRMED' || a.status === 'BOOKED') && (
                           <button
                             className="btn btn-secondary btn-sm"
+                            disabled={actionLoadingId !== null}
                             onClick={() => handleCheckIn(a.id, a.patient_name)}
                             title="Check In Patient to Queue"
-                            style={{ background: '#F0F9FF', border: '1px solid #BAE6FD', color: '#0369A1' }}
+                            style={{ background: '#F0F9FF', border: '1px solid #BAE6FD', color: '#0369A1', display: 'flex', alignItems: 'center', gap: 4 }}
                           >
-                            <UserCheck size={13} /> Check In
+                            <ButtonSpinner loading={actionLoadingId === a.id} />
+                            {actionLoadingId !== a.id && <UserCheck size={13} />} Check In
                           </button>
                         )}
                         {a.status === 'BOOKED' && (
                           <button
                             className="btn btn-primary btn-sm"
+                            disabled={actionLoadingId !== null}
                             onClick={() => handleStatusUpdate(a.booking_id, 'CONFIRMED')}
                             title="Confirm"
+                            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
                           >
-                            <CheckCircle size={13} /> Confirm
+                            <ButtonSpinner loading={actionLoadingId === a.booking_id} />
+                            {actionLoadingId !== a.booking_id && <CheckCircle size={13} />} Confirm
                           </button>
                         )}
                         {a.status === 'CONFIRMED' && (
                           <button
                             className="btn btn-success btn-sm"
+                            disabled={actionLoadingId !== null}
                             onClick={() => handleStatusUpdate(a.booking_id, 'COMPLETED')}
                             title="Complete Consultation"
+                            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
                           >
-                            <CheckCircle size={13} /> Complete
+                            <ButtonSpinner loading={actionLoadingId === a.booking_id} />
+                            {actionLoadingId !== a.booking_id && <CheckCircle size={13} />} Complete
                           </button>
                         )}
                         {(a.status === 'BOOKED' || a.status === 'CONFIRMED') && (
                           <button
                             className="btn btn-danger btn-sm"
+                            disabled={actionLoadingId !== null}
                             onClick={() => handleStatusUpdate(a.booking_id, 'CANCELLED', 'Cancelled by doctor')}
                             title="Cancel"
+                            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
                           >
-                            <XCircle size={13} />
+                            <ButtonSpinner loading={actionLoadingId === a.booking_id} />
+                            {actionLoadingId !== a.booking_id && <XCircle size={13} />}
                           </button>
                         )}
                       </div>
@@ -323,8 +356,9 @@ const DoctorAppointments: React.FC<DoctorAppointmentsProps> = ({ user: propUser 
             </table>
           )}
         </div>
-        <div style={{ padding: '12px 22px', fontSize: 13, color: 'var(--text-muted)' }}>
-          {loading ? 'Loading...' : `${appointments.length} of ${total} appointment(s) shown`}
+        <div style={{ padding: '12px 22px', fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {loading && <LoadingSpinner inline size="xs" />}
+          {loading ? 'Loading appointments...' : `${appointments.length} of ${total} appointment(s) shown`}
         </div>
       </div>
     </div>

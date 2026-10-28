@@ -8,6 +8,7 @@ import {
 import { apiService } from '../../services/api';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 import TablePagination from '../../components/TablePagination';
+import { LoadingSpinner, ButtonSpinner } from '../../components/LoadingSpinner';
 
 interface FeedbackRecord {
   id: number;
@@ -349,8 +350,8 @@ export const FeedbackPage: React.FC = () => {
             disabled={loading}
             style={{ display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-            Refresh
+            {loading ? <ButtonSpinner size={14} color="var(--primary)" /> : <RefreshCw size={14} />}
+            {loading ? 'Refreshing Feedback...' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -941,8 +942,8 @@ export const FeedbackPage: React.FC = () => {
                     disabled={updating}
                     style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                   >
-                    {updating && <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} />}
-                    Save Resolution Update
+                    {updating && <ButtonSpinner size={12} />}
+                    <span>{updating ? 'Saving Update...' : 'Save Resolution Update'}</span>
                   </button>
                 </div>
               </form>

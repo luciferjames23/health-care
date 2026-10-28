@@ -10,6 +10,7 @@ import {
   ArrowLeft, User, Phone, Mail, MapPin, Heart, AlertTriangle,
   Calendar, MessageSquare, Edit3, Save, X, CheckCircle, BedDouble, Plus
 } from 'lucide-react';
+import { ButtonSpinner } from '../../components/LoadingSpinner';
 
 interface PatientDetail {
   id: number;
@@ -232,7 +233,8 @@ const PatientProfile: React.FC = () => {
             <>
               <button className="btn btn-success" onClick={handleSave} disabled={saving}
                 style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Save size={15} /> {saving ? 'Saving...' : 'Save Changes'}
+                <ButtonSpinner loading={saving} />
+                {!saving && <Save size={15} />} {saving ? 'Saving...' : 'Save Changes'}
               </button>
               <button className="btn btn-secondary" onClick={handleEditCancel}
                 style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

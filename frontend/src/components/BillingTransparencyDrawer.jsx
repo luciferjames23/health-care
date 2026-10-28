@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
+import { ButtonSpinner } from './LoadingSpinner';
 import {
   X, AlertTriangle, CheckCircle2, ShieldCheck, FileText, Sparkles,
   Printer, ArrowUpRight, Clock, Stethoscope, RefreshCw, Languages, ChevronRight, HelpCircle, Download
@@ -1165,11 +1166,12 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                           color: '#ffffff',
                           fontSize: '12.5px',
                           fontWeight: 700,
-                          cursor: 'pointer',
+                          cursor: isApproving ? 'not-allowed' : 'pointer',
                           boxShadow: '0 2px 8px rgba(234, 88, 12, 0.25)'
                         }}
                       >
-                        <Printer size={15} />
+                        <ButtonSpinner loading={isApproving} />
+                        {!isApproving && <Printer size={15} />}
                         {isApproving ? 'Generating Invoice...' : 'Print Explanation on Invoice'}
                       </button>
                     </div>

@@ -3,6 +3,7 @@ import { apiService } from '../services/api';
 import SearchInput from './SearchInput';
 import TablePagination from './TablePagination';
 import { TableSkeleton } from './ModuleLoadingScreen';
+import { LoadingSpinner, ButtonSpinner } from './LoadingSpinner';
 import { Clock, Calendar, AlertCircle, CheckCircle } from 'lucide-react';
 
 const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
@@ -575,34 +576,12 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
 
             {/* Searching overlay */}
             {(loading || isSearching) && filteredDoctors.length > 0 && (
-              <div
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  background: 'rgba(255, 255, 255, 0.6)',
-                  backdropFilter: 'blur(1px)',
-                  zIndex: 8,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: 'oklch(0.5 0.1 200)'
-                }}
-              >
-                <div
-                  style={{
-                    width: '16px',
-                    height: '16px',
-                    border: '2px solid oklch(0.5 0.1 200)',
-                    borderTopColor: 'transparent',
-                    borderRadius: '50%',
-                    animation: 'spin 0.6s linear infinite'
-                  }}
-                />
-                <span>Filtering doctors...</span>
-              </div>
+              <LoadingSpinner
+                overlay
+                size="md"
+                color="oklch(0.5 0.1 200)"
+                text="Filtering doctors..."
+              />
             )}
             {loading ? (
               <TableSkeleton rows={6} columns={7} />
@@ -846,6 +825,7 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
                   onMouseEnter={e => { if (!schedLoading) e.currentTarget.style.backgroundColor = '#15803d'; }}
                   onMouseLeave={e => { if (!schedLoading) e.currentTarget.style.backgroundColor = '#16a34a'; }}
                 >
+                  <ButtonSpinner loading={schedLoading} />
                   {schedLoading ? 'Saving...' : 'Save Schedule'}
                 </button>
               </div>
@@ -1124,8 +1104,9 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
                 <button
                   type="submit"
                   disabled={editSchedLoading}
-                  style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', background: '#0284c7', color: '#fff', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' }}
+                  style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', background: '#0284c7', color: '#fff', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
                 >
+                  <ButtonSpinner loading={editSchedLoading} />
                   {editSchedLoading ? 'Updating...' : 'Save Changes'}
                 </button>
               </div>
@@ -1205,7 +1186,10 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
                 <button type="button" onClick={() => setShowAddModal(false)} style={{ height: '32px', padding: '0 14px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontSize: '12px' }}>Cancel</button>
-                <button type="submit" disabled={addLoading} style={{ height: '32px', padding: '0 18px', borderRadius: '6px', border: 0, background: 'oklch(0.5 0.1 200)', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: '12px' }}>{addLoading ? 'Saving…' : 'Create Doctor'}</button>
+                <button type="submit" disabled={addLoading} style={{ height: '32px', padding: '0 18px', borderRadius: '6px', border: 0, background: 'oklch(0.5 0.1 200)', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ButtonSpinner loading={addLoading} />
+                  {addLoading ? 'Saving…' : 'Create Doctor'}
+                </button>
               </div>
             </form>
           </div>
@@ -1267,7 +1251,10 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
                 <button type="button" onClick={() => setShowEditModal(false)} style={{ height: '32px', padding: '0 14px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontSize: '12px' }}>Cancel</button>
-                <button type="submit" disabled={editLoading} style={{ height: '32px', padding: '0 18px', borderRadius: '6px', border: 0, background: 'oklch(0.5 0.1 200)', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: '12px' }}>{editLoading ? 'Saving…' : 'Save Changes'}</button>
+                <button type="submit" disabled={editLoading} style={{ height: '32px', padding: '0 18px', borderRadius: '6px', border: 0, background: 'oklch(0.5 0.1 200)', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ButtonSpinner loading={editLoading} />
+                  {editLoading ? 'Saving…' : 'Save Changes'}
+                </button>
               </div>
             </form>
           </div>

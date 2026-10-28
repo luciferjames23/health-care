@@ -1,6 +1,8 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
+import { LoadingSpinner } from './LoadingSpinner';
+
 export interface TablePaginationProps {
   total?: number;
   page?: number;
@@ -10,6 +12,7 @@ export interface TablePaginationProps {
   label?: string;
   pageSizeOptions?: number[];
   style?: React.CSSProperties;
+  loading?: boolean;
 }
 
 /**
@@ -24,7 +27,8 @@ export const TablePagination: React.FC<TablePaginationProps> = ({
   onPageSizeChange,
   label = 'records',
   pageSizeOptions = [15, 25, 50, 100],
-  style = {}
+  style = {},
+  loading = false,
 }) => {
   const totalRows = Number(total) || 0;
   const size = Number(pageSize) || 25;
@@ -70,9 +74,12 @@ export const TablePagination: React.FC<TablePaginationProps> = ({
     >
       {/* Left side: Showing X-Y of Z & Page Size Selectors */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-        <span>
-          Showing <strong>{startRecord}</strong>–<strong>{endRecord}</strong> of{' '}
-          <strong>{totalRows.toLocaleString('en-IN')}</strong> {label}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          {loading && <LoadingSpinner inline size="xs" color="#0284c7" />}
+          <span>
+            Showing <strong>{startRecord}</strong>–<strong>{endRecord}</strong> of{' '}
+            <strong>{totalRows.toLocaleString('en-IN')}</strong> {label}
+          </span>
         </span>
 
         {pageSizeOptions && pageSizeOptions.length > 0 && (

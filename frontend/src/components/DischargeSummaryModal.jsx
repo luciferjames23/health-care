@@ -10,6 +10,7 @@ import {
   formatClinicalCondition,
   cleanDiagnosis
 } from '../services/api';
+import { ButtonSpinner } from './LoadingSpinner';
 
 /**
  * Strips any Tamil instructions from discharge advice / followup text
@@ -1125,6 +1126,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                     gap: '6px'
                   }}
                 >
+                  <ButtonSpinner loading={saving} />
                   {saving ? 'Saving...' : '💾 Save Changes'}
                 </button>
               )}
@@ -1655,6 +1657,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                       gap: '6px'
                     }}
                   >
+                    <ButtonSpinner loading={saving} />
                     {saving ? 'Saving...' : '💾 Save Changes'}
                   </button>
                 </div>
@@ -1694,9 +1697,13 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                     color: '#ffffff',
                     fontSize: '12px',
                     fontWeight: 600,
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
                   }}
                 >
+                  <ButtonSpinner loading={saving} />
                   {saving ? 'Approving...' : '✓ Approve & Sign-off'}
                 </button>
               )}

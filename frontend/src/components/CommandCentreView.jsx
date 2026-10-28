@@ -2,19 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { apiService, matchesDoctor, parseDischargeSummaryRecord, extractDischargedPatientIds, cleanDiagnosis } from '../services/api';
 import { fetchRoleKpis } from '../services/dashboardApi';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
+import { LoadingSpinner } from './LoadingSpinner';
 
-const Spinner = () => (
-  <span style={{
-    display: 'inline-block',
-    width: '18px', height: '18px',
-    border: '2px solid #e3e6e8',
-    borderTop: '2px solid oklch(0.5 0.1 200)',
-    borderRadius: '50%',
-    animation: 'kpi-spin 0.7s linear infinite',
-    verticalAlign: 'middle',
-    marginTop: '6px'
-  }} />
-);
+const Spinner = () => <LoadingSpinner size="sm" color="oklch(0.5 0.1 200)" style={{ marginTop: '4px' }} />;
 
 // ─── Role classification helpers ─────────────────────────────────────────────
 

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import ModuleLoadingScreen, { CardGridSkeleton, TableSkeleton } from '../../components/ModuleLoadingScreen';
+import { LoadingSpinner, ButtonSpinner } from '../../components/LoadingSpinner';
 
 const btnBase: React.CSSProperties = {
   height: '30px',
@@ -1123,8 +1124,8 @@ const PreAdmissionPage: React.FC = () => {
               onClick={loadData}
               disabled={loading}
             >
-              <RefreshCw size={13} style={{ animation: loading ? 'kpi-spin 0.7s linear infinite' : 'none' }} />
-              Refresh
+              {loading ? <ButtonSpinner size={13} color="var(--primary)" /> : <RefreshCw size={13} />}
+              {loading ? 'Refreshing...' : 'Refresh'}
             </button>
           </div>
         </div>
@@ -1616,6 +1617,7 @@ const PreAdmissionPage: React.FC = () => {
                   }}
                   disabled={submitting}
                 >
+                  {submitting && <ButtonSpinner />}
                   {submitting ? 'Registering Admission...' : 'Register Admission'}
                 </button>
               </div>
@@ -1683,9 +1685,10 @@ const PreAdmissionPage: React.FC = () => {
               </div>
 
               <div style={{ padding: '10px 16px', borderTop: '1px solid #e3e6e8', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: '#fbfbfc' }}>
-                <button type="button" style={btnSecondary} onClick={() => setShowStatusModal(false)}>Cancel</button>
+                <button type="button" style={btnSecondary} onClick={() => setShowStatusModal(false)} disabled={submitting}>Cancel</button>
                 <button type="submit" style={btnPrimary} disabled={submitting}>
-                  {submitting ? 'Saving...' : 'Save Updates'}
+                  {submitting && <ButtonSpinner />}
+                  {submitting ? 'Saving Updates...' : 'Save Updates'}
                 </button>
               </div>
             </form>
@@ -1847,6 +1850,7 @@ const PreAdmissionPage: React.FC = () => {
                   style={btnPrimary}
                   disabled={bedSubmitting || !selectedBedId}
                 >
+                  {bedSubmitting && <ButtonSpinner />}
                   {bedSubmitting ? 'Allocating Bed...' : 'Confirm Bed Allocation'}
                 </button>
               </div>
@@ -1880,7 +1884,9 @@ const PreAdmissionPage: React.FC = () => {
 
             <div style={{ flex: 1, overflowY: 'auto', background: '#f9fafa', padding: '16px' }}>
               {chatLoading ? (
-                <CardGridSkeleton count={2} />
+                <div style={{ padding: '40px', display: 'flex', justifyContent: 'center' }}>
+                  <LoadingSpinner size="md" text="Loading WhatsApp messages..." />
+                </div>
               ) : !chatData || !chatData.messages || chatData.messages.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: '#8a9096' }}>
                   No WhatsApp messages exchanged yet for this pre-admission.

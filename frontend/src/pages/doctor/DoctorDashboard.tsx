@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import DateRangeFilter, { calculateDateRange, type DateRangeValue, formatFriendlyDate, toYMD } from '../../components/DateRangeFilter';
+import { LoadingSpinner, ButtonSpinner } from '../../components/LoadingSpinner';
 
 const STATUS_COLORS: Record<string, string> = {
   BOOKED: '#ECC94B',
@@ -219,8 +220,8 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user: propUser, onNav
               disabled={loading}
               style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              {loading ? 'Loading...' : `Refresh · ${lastUpdated.toLocaleTimeString()}`}
+              {loading ? <ButtonSpinner size={14} color="var(--primary)" /> : <RefreshCw size={14} />}
+              {loading ? 'Refreshing Clinical Data...' : `Refresh · ${lastUpdated.toLocaleTimeString()}`}
             </button>
           </div>
         </div>
@@ -310,7 +311,7 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user: propUser, onNav
         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           {loading ? (
             <span style={{ color: '#2563EB', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> Fetching records for selected range...
+              <LoadingSpinner inline size={14} color="#2563EB" /> Fetching records for selected range...
             </span>
           ) : (
             `${summary?.appointments.total ?? 0} appointment(s) in selected range`

@@ -17,6 +17,7 @@ import {
 } from '../../components/DateRangeFilter';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 import TablePagination from '../../components/TablePagination';
+import { LoadingSpinner, ButtonSpinner } from '../../components/LoadingSpinner';
 
 import { useAuth } from '../../context/AuthContext';
 import TodaysQueueView from '../doctor/TodaysQueueView';
@@ -895,8 +896,8 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
               disabled={exporting}
               title="Export all matching appointments to CSV"
             >
-              <Download size={13} style={{ color: '#2563eb' }} />
-              {exporting ? 'Exporting...' : 'Export CSV'}
+              {exporting ? <ButtonSpinner size={13} color="#2563eb" /> : <Download size={13} style={{ color: '#2563eb' }} />}
+              <span>{exporting ? 'Exporting CSV...' : 'Export CSV'}</span>
             </button>
           </div>
         </div>

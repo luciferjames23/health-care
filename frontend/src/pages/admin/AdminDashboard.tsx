@@ -14,6 +14,7 @@ import {
   type DashboardSummary, type DateWiseAnalytics, type DailyViewResponse, type Doctor, type Department
 } from '../../services/dashboardApi';
 import DateRangeFilter, { type DateRangeValue, formatFriendlyDate, toYMD } from '../../components/DateRangeFilter';
+import { LoadingSpinner, ButtonSpinner } from '../../components/LoadingSpinner';
 
 const COLORS = ['#4A90D9', '#5AAFA5', '#48BB78', '#ECC94B', '#F56565', '#9F7AEA', '#ED8936'];
 
@@ -152,8 +153,8 @@ const AdminDashboard: React.FC = () => {
               disabled={loading}
               style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              {loading ? 'Loading...' : `Refresh · ${lastUpdated.toLocaleTimeString()}`}
+              {loading ? <ButtonSpinner size={14} color="var(--primary)" /> : <RefreshCw size={14} />}
+              {loading ? 'Refreshing Analytics...' : `Refresh · ${lastUpdated.toLocaleTimeString()}`}
             </button>
           </div>
         </div>

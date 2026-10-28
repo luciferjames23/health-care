@@ -4,6 +4,7 @@ import {
   X, Search, ShieldAlert, CheckCircle2, AlertTriangle,
   FileText, ArrowRight, Info, Filter, Building2, Layers, Check, ChevronRight
 } from 'lucide-react';
+import { ButtonSpinner } from './LoadingSpinner';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hierarchical Code Systems Data Dictionary:
@@ -758,7 +759,8 @@ export default function ClaimExclusionModal({
                 opacity: submitting ? 0.7 : 1
               }}
             >
-              <AlertTriangle size={13} />
+              <ButtonSpinner loading={submitting} />
+              {!submitting && <AlertTriangle size={13} />}
               {submitting ? 'Confirming...' : `Confirm Reject with ${selectedCode?.code || 'Code'}`}
             </button>
           </div>

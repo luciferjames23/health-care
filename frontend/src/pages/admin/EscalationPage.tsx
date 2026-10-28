@@ -6,6 +6,7 @@ import {
 import { fetchEscalations, updateEscalationStatus, type Escalation } from '../../services/dashboardApi';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 import TablePagination from '../../components/TablePagination';
+import { LoadingSpinner, ButtonSpinner } from '../../components/LoadingSpinner';
 
 const STATUS_COLORS: Record<string, { badge: string; label: string }> = {
   OPEN: { badge: 'cancelled', label: '🔴 Open' },
@@ -24,6 +25,7 @@ const EscalationPage: React.FC = () => {
   const [toast, setToast] = useState('');
   const [resolveModal, setResolveModal] = useState<Escalation | null>(null);
   const [resolutionNote, setResolutionNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -66,9 +68,14 @@ const EscalationPage: React.FC = () => {
   };
 
   const submitResolve = async () => {
-    if (!resolveModal) return;
-    await handleStatusUpdate(resolveModal.id, 'RESOLVED', resolutionNote);
-    setResolveModal(null);
+    if (!resolveModal || submitting) return;
+    setSubmitting(true);
+    try {
+      await handleStatusUpdate(resolveModal.id, 'RESOLVED', resolutionNote);
+      setResolveModal(null);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const openCount = escalations.filter(e => e.status === 'OPEN').length;
@@ -84,8 +91,8 @@ const EscalationPage: React.FC = () => {
           </div>
           <button className="btn btn-secondary btn-sm" onClick={loadEscalations} disabled={loading}
             style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-            Refresh
+            {loading ? <ButtonSpinner size={13} color="var(--primary)" /> : <RefreshCw size={13} />}
+            {loading ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -316,11 +323,12 @@ const EscalationPage: React.FC = () => {
               }}
             />
             <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setResolveModal(null)}>
+              <button className="btn btn-secondary" onClick={() => setResolveModal(null)} disabled={submitting}>
                 Cancel
               </button>
-              <button className="btn btn-success" onClick={submitResolve}>
-                <CheckCircle size={14} /> Mark as Resolved
+              <button className="btn btn-success" onClick={submitResolve} disabled={submitting} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {submitting ? <ButtonSpinner /> : <CheckCircle size={14} />}
+                <span>{submitting ? 'Resolving...' : 'Mark as Resolved'}</span>
               </button>
             </div>
           </div>

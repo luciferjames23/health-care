@@ -12,6 +12,7 @@ import {
   type Conversation,
 } from '../../services/dashboardApi';
 import ModuleLoadingScreen, { CardGridSkeleton } from '../../components/ModuleLoadingScreen';
+import { LoadingSpinner, ButtonSpinner } from '../../components/LoadingSpinner';
 
 const INTENT_COLORS: Record<string, string> = {
   GREETING: '#48BB78',
@@ -190,6 +191,15 @@ const AIPatientDesk: React.FC = () => {
               <option value="">All Languages</option>
               {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
             </select>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={loadData}
+              disabled={loading}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              {loading ? <ButtonSpinner size={12} color="var(--primary)" /> : <RefreshCw size={12} />}
+              <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+            </button>
           </div>
         </div>
 
@@ -264,8 +274,8 @@ const AIPatientDesk: React.FC = () => {
         </div>
 
         <div className="pagination" style={{ padding: '16px 22px' }}>
-          <span className="pagination-info">
-            {loading ? 'Loading...' : `${total} conversations total`}
+          <span className="pagination-info" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {loading ? <LoadingSpinner inline size="xs" text="Updating conversations..." /> : `${total} conversations total`}
           </span>
           <div className="pagination-buttons">
             <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}><ChevronLeft size={14} /></button>
@@ -303,7 +313,9 @@ const AIPatientDesk: React.FC = () => {
             </div>
 
             {loadingMessages ? (
-              <CardGridSkeleton count={2} />
+              <div style={{ padding: '40px', display: 'flex', justifyContent: 'center' }}>
+                <LoadingSpinner size="md" text="Retrieving WhatsApp chat transcript..." />
+              </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(convMessages as Array<{ sender_type: string; message_text?: string; created_at: string; intent?: string }>).map((msg, idx) => (
