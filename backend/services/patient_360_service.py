@@ -409,7 +409,12 @@ def generate_discharge_summary_pdf(summary_or_id: Any, patient_id: Optional[Any]
 
         scratch_dir = os.path.join(backend_dir, "scratch")
         os.makedirs(scratch_dir, exist_ok=True)
-        pdf_path = os.path.join(scratch_dir, f"discharge_summary_{summary['summary_id']}.pdf")
+        sid_raw = summary.get("summary_id")
+        try:
+            ds_code = f"DS-{int(sid_raw):04d}"
+        except (ValueError, TypeError):
+            ds_code = f"DS-{sid_raw}"
+        pdf_path = os.path.join(scratch_dir, f"discharge_summary_{ds_code}.pdf")
 
         doc = SimpleDocTemplate(
             pdf_path,
@@ -479,7 +484,7 @@ def generate_discharge_summary_pdf(summary_or_id: Any, patient_id: Optional[Any]
             [Paragraph("<b>Admission Date:</b>", body_style), Paragraph(summary.get("admission_date", "—"), body_style),
              Paragraph("<b>Discharge Date:</b>", body_style), Paragraph(summary.get("discharge_date", "—"), body_style)],
             [Paragraph("<b>Document Status:</b>", body_style), Paragraph(f"<b>{summary.get('approval_status', 'Approved')}</b>", body_style),
-             Paragraph("<b>Summary Ref:</b>", body_style), Paragraph(f"DS-{summary.get('summary_id')}", body_style)]
+             Paragraph("<b>Summary Ref:</b>", body_style), Paragraph(ds_code, body_style)]
         ]
         meta_table = Table(meta_data, colWidths=[100, 170, 100, 170])
         meta_table.setStyle(TableStyle([

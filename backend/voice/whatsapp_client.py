@@ -442,8 +442,15 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
         # Meta WhatsApp Cloud API limits interactive list messages to max 10 rows total across all sections.
         for btn in buttons[:10]:
             b_id = btn.get("id", f"btn_{uuid.uuid4().hex[:6]}")
-            b_title = btn.get("title", "Select")[:24]
-            b_desc = btn.get("description", "")[:72]
+            raw_title = str(btn.get("title", "Select"))
+            b_desc = btn.get("description", "")
+            if len(raw_title) > 24 and ("discharge summary" in raw_title.lower() or "ds-" in raw_title.lower()):
+                if not b_desc:
+                    b_desc = raw_title[:72]
+                b_title = raw_title.replace("Discharge Summary", "Discharge").replace("discharge summary", "Discharge")[:24]
+            else:
+                b_title = raw_title[:24]
+            b_desc = (b_desc or "")[:72]
             row_dict = {"id": b_id, "title": b_title}
             if b_desc:
                 row_dict["description"] = b_desc
@@ -454,7 +461,11 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
     formatted_buttons = []
     for btn in buttons[:3]:
         btn_id = btn.get("id", f"btn_{uuid.uuid4().hex[:6]}")
-        btn_title = str(btn.get("title", "Select"))[:20]  # WhatsApp 20 char title limit
+        raw_b_title = str(btn.get("title", "Select"))
+        if len(raw_b_title) > 20 and ("discharge summary" in raw_b_title.lower() or "ds-" in raw_b_title.lower()):
+            btn_title = raw_b_title.replace("Discharge Summary", "Discharge").replace("discharge summary", "Discharge")[:20]
+        else:
+            btn_title = raw_b_title[:20]
         formatted_buttons.append({
             "type": "reply",
             "reply": {"id": btn_id, "title": btn_title}
@@ -530,10 +541,17 @@ def send_list_message(to_number: str, text: str, button_label: str, sections: li
         s_rows = []
         for r in valid_rows:
             r_id = r.get("id", f"btn_{uuid.uuid4().hex[:6]}")
-            r_title = r.get("title", "Select")[:24]
+            raw_r_title = str(r.get("title", "Select"))
+            r_desc = r.get("description", "")
+            if len(raw_r_title) > 24 and ("discharge summary" in raw_r_title.lower() or "ds-" in raw_r_title.lower()):
+                if not r_desc:
+                    r_desc = raw_r_title[:72]
+                r_title = raw_r_title.replace("Discharge Summary", "Discharge").replace("discharge summary", "Discharge")[:24]
+            else:
+                r_title = raw_r_title[:24]
             r_dict = {"id": r_id, "title": r_title}
-            if r.get("description"):
-                r_dict["description"] = r["description"][:72]
+            if r_desc:
+                r_dict["description"] = str(r_desc)[:72]
             s_rows.append(r_dict)
             total_rows += 1
         if s_rows:

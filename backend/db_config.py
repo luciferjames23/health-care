@@ -5,6 +5,17 @@ from pathlib import Path
 import psycopg2
 import psycopg2.pool
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # Load backend directory into sys.path if not present
 BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
@@ -159,7 +170,8 @@ def _get_pool(database_name=None):
                     password=password,
                     sslmode="prefer" if _is_local_host(h) else "require",
                     connect_timeout=5,
-                    options="-c statement_timeout=30000",
+                    client_encoding="utf-8",
+                    options="-c client_encoding=UTF8 -c statement_timeout=30000",
                 )
                 print(f"[PERF] Shared PostgreSQL connection pool initialized on {h} (min={_POOL_MIN}, max={_POOL_MAX})")
                 break
@@ -207,7 +219,8 @@ def get_db_connection(database_name=None):
                 password=password,
                 sslmode="prefer" if _is_local_host(h) else "require",
                 connect_timeout=5,
-                options="-c statement_timeout=30000",
+                client_encoding="utf-8",
+                    options="-c client_encoding=UTF8 -c statement_timeout=30000",
             )
         except Exception as e:
             last_exc = e
