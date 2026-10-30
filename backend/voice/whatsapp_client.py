@@ -448,6 +448,14 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
                 if not b_desc:
                     b_desc = raw_title[:72]
                 b_title = raw_title.replace("Discharge Summary", "Discharge").replace("discharge summary", "Discharge")[:24]
+            elif len(raw_title) > 24 and ("xray-" in raw_title.lower() or "x-ray" in raw_title.lower()):
+                if not b_desc:
+                    b_desc = raw_title[:72]
+                if " | " in raw_title:
+                    parts = raw_title.split(" | ")
+                    b_title = f"{parts[0]} | {parts[1]}"[:24]
+                else:
+                    b_title = raw_title[:24]
             else:
                 b_title = raw_title[:24]
             b_desc = (b_desc or "")[:72]
@@ -464,6 +472,12 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
         raw_b_title = str(btn.get("title", "Select"))
         if len(raw_b_title) > 20 and ("discharge summary" in raw_b_title.lower() or "ds-" in raw_b_title.lower()):
             btn_title = raw_b_title.replace("Discharge Summary", "Discharge").replace("discharge summary", "Discharge")[:20]
+        elif len(raw_b_title) > 20 and ("xray-" in raw_b_title.lower() or "x-ray" in raw_b_title.lower()):
+            if " | " in raw_b_title:
+                parts = raw_b_title.split(" | ")
+                btn_title = f"{parts[0]} | {parts[1]}"[:20]
+            else:
+                btn_title = raw_b_title[:20]
         else:
             btn_title = raw_b_title[:20]
         formatted_buttons.append({
@@ -547,6 +561,14 @@ def send_list_message(to_number: str, text: str, button_label: str, sections: li
                 if not r_desc:
                     r_desc = raw_r_title[:72]
                 r_title = raw_r_title.replace("Discharge Summary", "Discharge").replace("discharge summary", "Discharge")[:24]
+            elif len(raw_r_title) > 24 and ("xray-" in raw_r_title.lower() or "x-ray" in raw_r_title.lower()):
+                if not r_desc:
+                    r_desc = raw_r_title[:72]
+                if " | " in raw_r_title:
+                    parts = raw_r_title.split(" | ")
+                    r_title = f"{parts[0]} | {parts[1]}"[:24]
+                else:
+                    r_title = raw_r_title[:24]
             else:
                 r_title = raw_r_title[:24]
             r_dict = {"id": r_id, "title": r_title}

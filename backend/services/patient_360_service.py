@@ -95,7 +95,7 @@ def get_patient_authorized_reports(patient_id: Any) -> Dict[str, Any]:
         # 1. Radiology X-ray scans
         cur.execute("""
             SELECT rs.scan_id, rs.scan_type, rs.modality, rs.body_part, rs.review_status,
-                   COALESCE(rs.created_at, rs.reviewed_at, rs.analyzed_at) AS scan_date,
+                   COALESCE(rs.created_at, rs.reviewed_at, rs.analyzed_at, rs.viewed_at) AS scan_date,
                    (rs.image IS NOT NULL) AS has_image,
                    (rs.scan_report IS NOT NULL OR rs.findings IS NOT NULL) AS has_report,
                    rs.findings, rs.scan_report, rs.radiologist_finding
@@ -106,14 +106,18 @@ def get_patient_authorized_reports(patient_id: Any) -> Dict[str, Any]:
         xray_rows = cur.fetchall()
         xrays = []
         for r in xray_rows:
-            dt = r[5].strftime("%d %b %Y") if r[5] and hasattr(r[5], "strftime") else str(r[5])[:10] if r[5] else "Recent"
+            dt = r[5].strftime("%d-%b-%Y") if r[5] and hasattr(r[5], "strftime") else str(r[5])[:10] if r[5] else "Recent"
+            bp = (r[3] or "Chest").strip().title()
+            s_type = r[1] or f"{bp} X-Ray"
+            xray_code = f"XRAY-{int(r[0]):04d}" if str(r[0]).isdigit() else f"XRAY-{r[0]}"
             xrays.append({
                 "id": r[0],
                 "scan_id": r[0],
-                "scan_type": r[1] or "X-Ray Examination",
+                "record_id": xray_code,
+                "scan_type": s_type,
                 "modality": r[2] or "DX",
-                "body_part": r[3] or "Chest",
-                "body_region": r[3] or "Chest",
+                "body_part": bp,
+                "body_region": bp,
                 "review_status": r[4] or "Completed",
                 "date": dt,
                 "scan_date": dt,
@@ -214,7 +218,7 @@ def get_xray_scan_record(patient_id: Any, scan_id: Optional[int] = None) -> Opti
             SELECT rs.scan_id, rs.patient_id, rs.patient_code, rs.scan_type, rs.modality,
                    rs.body_part, rs.priority, rs.review_status, rs.findings, rs.scan_report,
                    rs.radiologist_finding, rs.clinical_summary, rs.assessment, rs.recommended_action,
-                   COALESCE(rs.created_at, rs.reviewed_at, rs.analyzed_at) AS created_at, rs.image, p.first_name, p.last_name
+                   COALESCE(rs.created_at, rs.reviewed_at, rs.analyzed_at, rs.viewed_at) AS created_at, rs.image, p.first_name, p.last_name
             FROM radiology_scan rs
             LEFT JOIN patients p ON rs.patient_id = p.id
             WHERE {where_clause}
@@ -224,17 +228,20 @@ def get_xray_scan_record(patient_id: Any, scan_id: Optional[int] = None) -> Opti
         if not r:
             return None
 
-        dt = r[14].strftime("%d %b %Y, %I:%M %p") if r[14] and hasattr(r[14], "strftime") else str(r[14])[:19] if r[14] else "Recent"
+        dt = r[14].strftime("%d-%b-%Y") if r[14] and hasattr(r[14], "strftime") else str(r[14])[:10] if r[14] else "Recent"
         p_name = f"{r[16] or ''} {r[17] or ''}".strip() or f"Patient {r[1]}"
+        bp = (r[5] or "Chest").strip().title()
+        xray_code = f"XRAY-{int(r[0]):04d}" if str(r[0]).isdigit() else f"XRAY-{r[0]}"
         return {
             "scan_id": r[0],
+            "record_id": xray_code,
             "patient_id": r[1],
             "patient_code": r[2] or f"MER-PAT-{str(r[1]).zfill(7)}",
             "patient_name": p_name,
-            "scan_type": r[3] or "Chest X-Ray",
+            "scan_type": r[3] or f"{bp} X-Ray",
             "modality": r[4] or "DX",
-            "body_part": r[5] or "CHEST",
-            "body_region": r[5] or "CHEST",
+            "body_part": bp,
+            "body_region": bp,
             "priority": r[6] or "Routine",
             "review_status": r[7] or "Confirmed",
             "status": r[7] or "Confirmed",
@@ -247,6 +254,7 @@ def get_xray_scan_record(patient_id: Any, scan_id: Optional[int] = None) -> Opti
             "assessment": r[12] or "",
             "recommended_action": r[13] or "",
             "created_at": dt,
+            "scan_date": dt,
             "examination_date": dt,
             "has_image": bool(r[15]),
             "image_raw": r[15]

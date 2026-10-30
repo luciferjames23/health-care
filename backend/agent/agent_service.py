@@ -3013,6 +3013,12 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 btn_id = f"btn_discharge_{int(ds_m.group(1))}"
             except Exception:
                 pass
+        xray_m = re.search(r"\bXRAY-(\d+)\b", message_text, re.IGNORECASE)
+        if xray_m:
+            try:
+                btn_id = f"btn_xray_{int(xray_m.group(1))}"
+            except Exception:
+                pass
         try:
             import agent.message_normalizer as message_normalizer
             interp_msg = message_normalizer.normalize_patient_message(message_text, state)
@@ -5123,10 +5129,23 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 buttons = []
                 for s in scans[:5]:
                     s_id = s.get("scan_id") or s.get("id")
-                    reg = s.get("body_part") or s.get("body_region") or s.get("modality") or "Scan"
-                    d_str = str(s.get("date") or s.get("scan_date") or "")[:10]
-                    has_img = "📸" if s.get("has_image") else "📝"
-                    buttons.append({"id": f"btn_xray_{s_id}", "title": f"{has_img} {reg} {d_str}"[:24]})
+                    xray_code = f"XRAY-{int(s_id):04d}" if str(s_id).isdigit() else f"XRAY-{s_id}"
+                    bp = (s.get("body_part") or s.get("body_region") or "Chest").strip().title()
+                    d_str = str(s.get("date") or s.get("scan_date") or "Recent").strip()
+                    if hasattr(d_str, "strftime"):
+                        d_str = d_str.strftime("%d-%b-%Y")
+                    elif isinstance(d_str, str) and " " in d_str and len(d_str) >= 10:
+                        try:
+                            from datetime import datetime
+                            d_str = datetime.strptime(d_str[:11].strip(), "%d %b %Y").strftime("%d-%b-%Y")
+                        except Exception:
+                            d_str = d_str[:10].replace(" ", "-")
+                    scan_label = f"{xray_code} | {bp} | {d_str}"
+                    buttons.append({
+                        "id": f"btn_xray_{s_id}",
+                        "title": scan_label,
+                        "description": scan_label
+                    })
                 buttons.append(language_service.get_translated_button("btn_my_reports", current_lang))
                 buttons.append(language_service.get_translated_button("btn_main_menu", current_lang))
 
@@ -5154,18 +5173,32 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     language_service.get_translated_button("btn_main_menu", current_lang)
                 ]
             else:
-                reg = scan.get("body_region") or "X-Ray"
+                xray_code = f"XRAY-{int(scan_id):04d}" if str(scan_id).isdigit() else f"XRAY-{scan_id}"
+                state["selected_xray_id"] = scan_id
+                state["selected_xray_code"] = xray_code
+                reg = (scan.get("body_region") or scan.get("body_part") or "Chest").strip().title()
                 mod = scan.get("modality") or "X-Ray"
-                dt = str(scan.get("scan_date", "N/A"))[:10]
-                stat = scan.get("status") or "Completed"
-                rad = scan.get("radiologist_name") or "Radiology Department"
+                dt = str(scan.get("scan_date") or scan.get("created_at") or "N/A").strip()
+                if hasattr(dt, "strftime"):
+                    dt = dt.strftime("%d-%b-%Y")
+                elif isinstance(dt, str) and " " in dt and len(dt) >= 10:
+                    try:
+                        from datetime import datetime
+                        dt = datetime.strptime(dt[:11].strip(), "%d %b %Y").strftime("%d-%b-%Y")
+                    except Exception:
+                        dt = dt[:10].replace(" ", "-")
+                stat = scan.get("status") or scan.get("review_status") or "Completed"
+                rad = scan.get("radiologist_name") or scan.get("reviewed_by") or "Radiology Department"
                 has_img = scan.get("has_image")
                 has_rep = bool(scan.get("scan_report") or scan.get("findings"))
 
                 img_status_text = "✅ Digital Image Available" if has_img else "⚠️ Digital Image Not Available (Report Only)"
 
                 resp = (
-                    f"🩻 *{mod} — {reg}*\n\n"
+                    f"🩻 *Radiology Examination — {xray_code}*\n\n"
+                    f"Record ID: {xray_code}\n"
+                    f"Anatomical Region: {reg}\n"
+                    f"Modality: {mod}\n"
                     f"Patient ID: P{pat_id}\n"
                     f"Examination Date: {dt}\n"
                     f"Radiologist: {rad}\n"
@@ -5224,14 +5257,26 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             with open(img_path, "wb") as f_img:
                 f_img.write(img_bytes)
 
-            reg = scan.get("body_region") or "X-Ray"
-            dt = str(scan.get("scan_date", "N/A"))[:10]
+            xray_code = f"XRAY-{int(scan_id):04d}" if str(scan_id).isdigit() else f"XRAY-{scan_id}"
+            reg = (scan.get("body_region") or scan.get("body_part") or "Chest").strip().title()
+            dt = str(scan.get("scan_date") or scan.get("created_at") or "N/A").strip()
+            if hasattr(dt, "strftime"):
+                dt = dt.strftime("%d-%b-%Y")
+            elif isinstance(dt, str) and " " in dt and len(dt) >= 10:
+                try:
+                    from datetime import datetime
+                    dt = datetime.strptime(dt[:11].strip(), "%d %b %Y").strftime("%d-%b-%Y")
+                except Exception:
+                    dt = dt[:10].replace(" ", "-")
+
             resp = (
-                f"📸 *Authorized X-Ray Image — {reg}*\n\n"
+                f"📸 *Authorized X-Ray Image — {xray_code}*\n\n"
+                f"Record ID: {xray_code}\n"
+                f"Region: {reg}\n"
                 f"Patient ID: P{pat_id}\n"
                 f"Examination Date: {dt}\n"
                 f"Status: {scan.get('status', 'Verified')}\n\n"
-                f"The verified high-resolution X-ray image has been dispatched below."
+                f"The verified high-resolution X-ray image ({xray_code}) has been dispatched below."
             )
             buttons = [
                 {"id": f"btn_view_rad_report_{scan_id}", "title": "📄 Radiology Report"},
@@ -5246,7 +5291,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 "response": resp,
                 "intent": "PATIENT_REPORTS",
                 "language": current_lang,
-                "media_image": img_path,
+                "media_image": {"path": img_path, "filename": f"XRay_{xray_code}_{reg}.png", "caption": f"X-Ray Image — {xray_code} | {reg}"},
                 "interactive_buttons": buttons
             }
 
@@ -5266,20 +5311,31 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 buttons = [{"id": "btn_cat_xrays", "title": "X-Ray List"}, language_service.get_translated_button("btn_main_menu", current_lang)]
                 return {"response": resp, "intent": "PATIENT_REPORTS", "language": current_lang, "interactive_buttons": buttons}
 
-            reg = scan.get("body_region") or "X-Ray"
-            dt = str(scan.get("scan_date", "N/A"))[:10]
+            xray_code = f"XRAY-{int(scan_id):04d}" if str(scan_id).isdigit() else f"XRAY-{scan_id}"
+            reg = (scan.get("body_region") or scan.get("body_part") or "Chest").strip().title()
+            dt = str(scan.get("scan_date") or scan.get("created_at") or "N/A").strip()
+            if hasattr(dt, "strftime"):
+                dt = dt.strftime("%d-%b-%Y")
+            elif isinstance(dt, str) and " " in dt and len(dt) >= 10:
+                try:
+                    from datetime import datetime
+                    dt = datetime.strptime(dt[:11].strip(), "%d %b %Y").strftime("%d-%b-%Y")
+                except Exception:
+                    dt = dt[:10].replace(" ", "-")
             findings = scan.get("findings") or "No acute abnormality detected."
             impression = scan.get("scan_report") or "Normal study."
-            rad = scan.get("radiologist_name") or "Radiology Department"
+            rad = scan.get("radiologist_name") or scan.get("reviewed_by") or "Radiology Department"
 
             resp = (
-                f"📄 *Radiology Report — {reg}*\n\n"
+                f"📄 *Radiology Report — {xray_code}*\n\n"
+                f"Record ID: {xray_code}\n"
+                f"Examination: {reg} X-Ray\n"
                 f"Patient ID: P{pat_id}\n"
                 f"Date of Study: {dt}\n"
                 f"Radiologist: {rad}\n"
                 f"Status: {scan.get('status', 'Completed')}\n\n"
-                f"*Findings:*\n{findings}\n\n"
-                f"*Impression / Summary:*\n{impression}"
+                f"*Clinical Findings:*\n{findings}\n\n"
+                f"*Impression:*\n{impression}"
             )
             buttons = []
             if scan.get("has_image"):
